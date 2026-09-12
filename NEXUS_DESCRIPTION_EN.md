@@ -24,8 +24,10 @@ The build targets Skyrim SE and AE, but the distributed build was tested in game
 
 ## Installation
 
-1. Install the ZIP with MO2 or another mod manager.
-2. If Community Shaders is installed, disable Depth of Field in Community Shaders.
+1. For a new installation, install the `Full-MO2` package. It includes the INI with the bundled defaults.
+2. When updating from an older version, use the INI-free `Update-Merge-MO2` package and choose `Merge` into the existing mod in MO2. `Replace` also deletes the existing INI.
+3. Installing the `Full-MO2` package over an existing setup replaces the user's saved settings with the bundled defaults.
+4. If Community Shaders is installed, disable Depth of Field in Community Shaders.
 
 For Japanese UI text, set `EnableJapanese=true` under `[Fonts]` in `Data/SKSE/Plugins/SKSEMenuFramework.ini`.
 
@@ -44,7 +46,7 @@ The key assignment is saved to the INI and is not part of a preset. Toggling DoF
 
 ## Presets and saving
 
-The eight slots are Gameplay, Cinematic, View Focus, Photo Portrait, Photo Wide, First-Person Photo, Custom 1, and Custom 2.
+The nine slots are Gameplay, Cinematic, View Focus, Photo Portrait, Photo Wide, First-Person Photo, Aperture Bokeh (Experimental), Custom 1, and Custom 2. Existing Custom 1/2 values keep their named INI sections and stable internal IDs while moving visually to slots 8/9, so an upgrade does not overwrite them.
 
 - Preset number / Apply: applies the stored settings to the current image. It does not change the preset slot or startup settings.
 - Store Current: saves the current DoF, dialogue-focus, and target-tracking values in the selected preset slot. It does not change startup settings or the UI language.

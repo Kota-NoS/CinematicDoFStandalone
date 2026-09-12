@@ -11,6 +11,7 @@ namespace
 
 	Settings uiSettings{};
 	TargetFocusSettings targetFocusSettings{};
+	ModeSettings modeSettings{};
 	InterfaceSettings interfaceSettings{};
 	HotkeySettings hotkeySettings{};
 	std::mutex uiMutex;
@@ -61,6 +62,20 @@ namespace
 		const auto label = std::string(Localized(a_englishLabel, a_japaneseLabel));
 		const auto changed = MenuFramework::SliderFloat(label.c_str(), a_value, a_min, a_max, a_format);
 		MenuFramework::ItemTooltip(Localized(a_englishHelp, a_japaneseHelp));
+		return changed;
+	}
+
+	bool ApertureBladeSlider(Settings& a_settings)
+	{
+		float bladeCount = static_cast<float>(a_settings.apertureBlades);
+		const auto changed = SliderWithHelp(
+			"Aperture Blades", "絞り羽根枚数", &bladeCount, 3.0F, 12.0F, "%.0f",
+			"Sets the number of aperture blades. Fewer blades make the polygonal shape easier to see on strongly defocused bright points.",
+			"絞り羽根の枚数です。枚数を少なくすると、大きくぼけた明るい点で多角形の形が見えやすくなります。");
+		if (changed) {
+			a_settings.apertureBlades = static_cast<std::uint32_t>(
+				std::clamp(std::lround(bladeCount), 3L, 12L));
+		}
 		return changed;
 	}
 
@@ -125,18 +140,28 @@ namespace
 
 	void RenderLanguageControls()
 	{
-		MenuFramework::Text(Localized("Language", "言語"));
 		MenuFramework::SameLine();
-		const auto label = interfaceSettings.japanese ? "日本語##InterfaceLanguage" : "English##InterfaceLanguage";
-		if (MenuFramework::Button(label)) {
-			interfaceSettings.japanese = !interfaceSettings.japanese;
+		const auto englishLabel = interfaceSettings.japanese ?
+			"English##InterfaceEnglish" : "[English]##InterfaceEnglish";
+		if (MenuFramework::Button(englishLabel) && interfaceSettings.japanese) {
+			interfaceSettings.japanese = false;
+			SetStatus(
+				"Interface language changed (use Save Startup Settings to keep it).",
+				"表示言語を変更しました（次回起動にも残すには「次回起動設定を保存」）。");
+		}
+		MenuFramework::ItemTooltip("Switch the interface to English. The selected language is shown in brackets.");
+		MenuFramework::SameLine();
+		const auto japaneseLabel = interfaceSettings.japanese ?
+			"[日本語]##InterfaceJapanese" : "日本語##InterfaceJapanese";
+		if (MenuFramework::Button(japaneseLabel) && !interfaceSettings.japanese) {
+			interfaceSettings.japanese = true;
 			SetStatus(
 				"Interface language changed (use Save Startup Settings to keep it).",
 				"表示言語を変更しました（次回起動にも残すには「次回起動設定を保存」）。");
 		}
 		MenuFramework::ItemTooltip(Localized(
-			"Shows the current UI language. Click to switch between English and Japanese.",
-			"現在のUI言語です。押すとEnglish／日本語を切り替えます。"));
+			"Switch the interface to Japanese. The selected language is shown in brackets.",
+			"表示を日本語へ切り替えます。選択中の言語は角括弧で表示されます。"));
 		if (interfaceSettings.japanese && !japaneseFontEnabled) {
 			MenuFramework::Text("Japanese glyphs are disabled in SKSE Menu Framework.");
 			MenuFramework::Text("Set [Fonts] EnableJapanese=true in SKSEMenuFramework.ini, then restart Skyrim.");
@@ -161,6 +186,7 @@ namespace
 	void ApplyLive()
 	{
 		DoFRenderer::GetSingleton().SetSettings(uiSettings);
+		DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
 		ApplyTargetFocus();
 		SetStatus("Live values changed (not saved).", "現在値を変更しました（INI未保存）。");
 	}
@@ -349,6 +375,38 @@ namespace
 		return preset;
 	}
 
+	Settings ApertureBokehPreset()
+	{
+		Settings preset{};
+		preset.enabled = true;
+		preset.autoFocus = false;
+		preset.disableInMenus = true;
+		preset.focusX = 0.5F;
+		preset.focusY = 0.5F;
+		preset.autoFocusOffsetMeters = 0.0F;
+		preset.transitionSpeed = 0.9F;
+		preset.manualFocusMeters = 46.09F;
+		preset.focalLength = 70.3F;
+		preset.fNumber = 3.4F;
+		preset.farPlaneMaxBlur = 1.74F;
+		preset.nearPlaneMaxBlur = 1.0F;
+		preset.enableFirstPersonNearBlur = false;
+		preset.blurQuality = 8.0F;
+		preset.nearFarDistanceCompensation = 1.0F;
+		preset.bokehBusyFactor = 0.0F;
+		preset.highlightBoost = 0.35F;
+		preset.postBlurSmoothing = 0.2F;
+		preset.petzvalStrength = 0.0F;
+		preset.apertureBokeh = true;
+		preset.apertureBlades = 5;
+		preset.apertureRoundness = 0.1F;
+		preset.apertureShapeStrength = 0.6F;
+		preset.apertureRotationDegrees = 0.0F;
+		preset.nearFocusRangeMeters = 0.0F;
+		preset.farFocusRangeMeters = 2.1F;
+		return preset;
+	}
+
 	TargetFocusSettings TargetDefaults(
 		bool a_dialogueEnabled,
 		std::uint32_t a_dialoguePreset,
@@ -365,6 +423,7 @@ namespace
 		return result;
 	}
 
+	// storageId is persisted as DialoguePreset. Keep existing IDs stable; array order alone controls UI slot order.
 	std::array<PresetSlot, kPresetSlotCount> presetSlots{
 		PresetSlot{ 0, "Gameplay", "通常プレイ", L"Preset.Gameplay", nullptr, GameplayPreset(), {},
 			TargetDefaults(true, 0, 2.5F, false), {} },
@@ -378,6 +437,8 @@ namespace
 			TargetDefaults(true, 3, 1.6F, true), {} },
 		PresetSlot{ 7, "First-Person Photo", "一人称撮影", L"Preset.FirstPersonPhoto", nullptr,
 			FirstPersonPhotoPreset(), {}, TargetDefaults(true, 7, 0.49F, true, TargetFocusSource::kConsole), {} },
+		PresetSlot{ 8, "Aperture Bokeh", "絞り形状（試験的）", L"Preset.ApertureBokeh", nullptr,
+			ApertureBokehPreset(), {}, TargetDefaults(true, 7, 1.31F, true), {} },
 		PresetSlot{ 4, "Custom 1", "カスタム1", L"Preset.Custom1", L"Preset.Video", Custom1Preset(), {},
 			TargetDefaults(true, 7, 1.21F, true), {} },
 		PresetSlot{ 5, "Custom 2", "カスタム2", L"Preset.Custom2", nullptr, Custom2Preset(), {},
@@ -401,6 +462,8 @@ namespace
 			a_left.autoFocus == a_right.autoFocus &&
 			a_left.disableInMenus == a_right.disableInMenus &&
 			a_left.enableFirstPersonNearBlur == a_right.enableFirstPersonNearBlur &&
+			a_left.apertureBokeh == a_right.apertureBokeh &&
+			a_left.apertureBlades == a_right.apertureBlades &&
 			NearlyEqual(a_left.transitionSpeed, a_right.transitionSpeed) &&
 			NearlyEqual(a_left.focusX, a_right.focusX) &&
 			NearlyEqual(a_left.focusY, a_right.focusY) &&
@@ -417,7 +480,10 @@ namespace
 			NearlyEqual(a_left.bokehBusyFactor, a_right.bokehBusyFactor) &&
 			NearlyEqual(a_left.highlightBoost, a_right.highlightBoost) &&
 			NearlyEqual(a_left.postBlurSmoothing, a_right.postBlurSmoothing) &&
-			NearlyEqual(a_left.petzvalStrength, a_right.petzvalStrength);
+			NearlyEqual(a_left.petzvalStrength, a_right.petzvalStrength) &&
+			NearlyEqual(a_left.apertureRoundness, a_right.apertureRoundness) &&
+			NearlyEqual(a_left.apertureShapeStrength, a_right.apertureShapeStrength) &&
+			NearlyEqual(a_left.apertureRotationDegrees, a_right.apertureRotationDegrees);
 	}
 
 	bool Matches(const TargetFocusSettings& a_left, const TargetFocusSettings& a_right)
@@ -751,6 +817,7 @@ namespace
 
 		if (MenuFramework::Button(Localized("Save Startup Settings", "次回起動設定を保存"))) {
 			if (SaveSettings(uiSettings) && SaveTargetFocusSettings(targetFocusSettings) &&
+				SaveModeSettings(modeSettings) &&
 				SaveInterfaceSettings(interfaceSettings)) {
 				SetStatus("Saved startup settings to CinematicDoFStandalone.ini.", "次回起動設定をCinematicDoFStandalone.iniへ保存しました。");
 			} else {
@@ -758,18 +825,20 @@ namespace
 			}
 		}
 		MenuFramework::ItemTooltip(Localized(
-			"Saves the DoF, dialogue-focus, target-tracking, and interface-language values currently applied on screen for the next launch. It does not overwrite any preset slot.",
-			"現在映像へ適用中のDoF・会話フォーカス・対象追従設定とUI言語を、次回起動時の設定として保存します。プリセット枠は上書きしません。"));
+			"Saves the master switch, normal-gameplay mode, DoF, dialogue-focus, target-tracking, and interface-language values currently applied on screen for the next launch. It does not overwrite any preset slot.",
+			"現在映像へ適用中の主スイッチ・会話外DoF・DoF・会話フォーカス・対象追従設定とUI言語を、次回起動時の設定として保存します。プリセット枠は上書きしません。"));
 		MenuFramework::SameLine();
 		if (MenuFramework::Button(Localized("Reload INI", "INIを再読み込み"))) {
 			uiSettings = LoadSettings();
 			targetFocusSettings = LoadTargetFocusSettings();
+			modeSettings = LoadModeSettings();
 			interfaceSettings = LoadInterfaceSettings();
 			hotkeySettings = LoadHotkeySettings();
 			waitingForHotkey = false;
 			LoadPresets();
 			editingPresetIndex = FindMatchingPreset();
 			DoFRenderer::GetSingleton().SetSettings(uiSettings);
+			DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
 			ApplyTargetFocus();
 			SetStatus(
 				"Reloaded current settings and preset slots from INI.",
@@ -781,13 +850,6 @@ namespace
 	bool RenderCoreControls()
 	{
 		bool changed{};
-		changed |= CheckboxWithHelp(
-			"Enabled",
-			"DoFを有効にする",
-			&uiSettings.enabled,
-			"Master switch for all depth-of-field rendering.",
-			"すべてのDoF描画を切り替える主スイッチです。");
-		RenderHotkeyControl();
 		RenderPresetToolbar();
 
 		changed |= RenderFocusModeControls();
@@ -915,14 +977,33 @@ namespace
 					"Bokeh Busy Factor", "ボケの密度", &uiSettings.bokehBusyFactor, 0.0F, 1.0F, "%.2f",
 					"Adjusts how busy or dense out-of-focus highlights appear.",
 					"ピンぼけ部分の光がどれくらい密集して見えるかを調整します。");
+				changed |= CheckboxWithHelp(
+					"Aperture Bokeh (Experimental)", "絞り形状ボケ（試験的）", &uiSettings.apertureBokeh,
+					"Shapes the blur kernel with a procedurally generated lens aperture. The shape is easiest to see on bright points that are strongly out of focus. No external image is used.",
+					"数値から生成したレンズ絞りの形をボケへ反映します。大きくピンぼけした明るい点ほど形が見えやすくなります。外部画像は使用しません。");
+				if (uiSettings.apertureBokeh) {
+					changed |= ApertureBladeSlider(uiSettings);
+					changed |= SliderWithHelp(
+						"Blade Roundness", "羽根の丸み", &uiSettings.apertureRoundness, 0.0F, 1.0F, "%.2f",
+						"Blends the aperture from a straight-edged polygon toward a circle.",
+						"直線的な多角形から円形へ、絞り形状の丸みを調整します。");
+					changed |= SliderWithHelp(
+						"Shape Strength", "形状の強さ", &uiSettings.apertureShapeStrength, 0.0F, 1.0F, "%.2f",
+						"Controls how strongly the aperture shape affects the blur. Zero behaves like the standard circular blur; one uses the full generated shape.",
+						"絞り形状をボケへ反映する強さです。0では通常の円形ボケ、1では生成した形状を最大限に反映します。");
+					changed |= SliderWithHelp(
+						"Shape Rotation", "形状の回転", &uiSettings.apertureRotationDegrees, 0.0F, 360.0F, "%.0f deg",
+						"Rotates the aperture shape around the optical axis.",
+						"光軸を中心に絞り形状を回転します。");
+				}
 				changed |= SliderWithHelp(
 					"Petzval Strength", "周辺ボケの強さ", &uiSettings.petzvalStrength, 0.0F, 2.0F, "%.2f",
 					"Stretches existing edge bokeh tangentially to reproduce swirling lens bokeh.",
 					"画面周辺の既存ボケを接線方向へ引き延ばし、渦巻くレンズボケを再現します。");
 				changed |= SliderWithHelp(
 					"Highlight Boost", "明るいボケの強調", &uiSettings.highlightBoost, 0.0F, 1.0F, "%.2f",
-					"Boosts bright highlights inside blurred regions.",
-					"ぼけた領域にある明るい光を強調します。");
+					"Boosts bright highlights inside blurred regions. With aperture-shaped bokeh enabled, it blends the blur toward the brightest eligible shaped sample.",
+					"ぼけた領域にある明るい光を強調します。絞り形状ボケが有効な場合は、ぼかし結果を形状付きの最も明るい有効サンプルへ近づけます。");
 				changed |= SliderWithHelp(
 					"Post Blur Smoothing",
 					"仕上げの滑らかさ",
@@ -942,18 +1023,40 @@ namespace
 		return changed;
 	}
 
+	bool RenderModeControls()
+	{
+		bool changed{};
+		changed |= CheckboxWithHelp(
+			"Enable DoF",
+			"DoFを有効にする",
+			&uiSettings.enabled,
+			"Master switch for all DoF rendering, including dialogue. The hotkey controls this same switch.",
+			"会話中を含むすべてのDoF描画の主スイッチです。ホットキーも同じスイッチを切り替えます。");
+		RenderHotkeyControl();
+		changed |= CheckboxWithHelp(
+			"Use DoF outside dialogue",
+			"会話外でもDoFを使用",
+			&modeSettings.normalGameplayEnabled,
+			"Turn this off for dialogue-only DoF. The master switch and Dialogue Focus must remain enabled.",
+			"OFFにすると会話中だけDoFを使用します。主スイッチと「会話中の被写体にピントを合わせる」はONのままにしてください。");
+		RenderLanguageControls();
+		return changed;
+	}
+
 	void __stdcall RenderMainPage()
 	{
 		std::scoped_lock lock(uiMutex);
 		const auto fontPushed = PushLocalizedFont();
-		MenuFramework::Text("Cinematic DoF Standalone 0.8.31");
-		RenderLanguageControls();
+		if (RenderModeControls()) {
+			ApplyLive();
+		}
 		if (RenderCoreControls()) {
 			ApplyLive();
 		}
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
+		MenuFramework::Text("Cinematic DoF Standalone 0.8.32");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}
@@ -966,11 +1069,13 @@ void CDoF::UI::Initialize(Settings a_settings)
 	std::scoped_lock lock(uiMutex);
 	uiSettings = a_settings;
 	targetFocusSettings = LoadTargetFocusSettings();
+	modeSettings = LoadModeSettings();
 	interfaceSettings = LoadInterfaceSettings();
 	hotkeySettings = LoadHotkeySettings();
 	japaneseFontEnabled = IsJapaneseFontEnabled();
 	LoadPresets();
 	editingPresetIndex = FindMatchingPreset();
+	DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
 	ApplyTargetFocus();
 	initialized = true;
 }

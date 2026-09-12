@@ -1,0 +1,13 @@
+.xmake/
+work/
+build/
+.vs/
+
+*.obj
+*.pdb
+*.dll
+*.lib
+*.exp
+*.zip
+*.log
+*.user

@@ -5,6 +5,7 @@ namespace
 	constexpr auto kPath = L"Data\\SKSE\\Plugins\\CinematicDoFStandalone.ini";
 	constexpr auto kSection = L"DepthOfField";
 	constexpr auto kTargetFocusSection = L"TargetFocus";
+	constexpr auto kModeSection = L"Modes";
 	constexpr auto kInterfaceSection = L"Interface";
 	constexpr auto kHotkeySection = L"Hotkeys";
 
@@ -132,6 +133,15 @@ namespace
 		a_defaults.highlightBoost = Clamp(ReadFloat(a_section, L"HighlightBoost", a_defaults.highlightBoost), 0.0F, 1.0F);
 		a_defaults.postBlurSmoothing = Clamp(ReadFloat(a_section, L"PostBlurSmoothing", a_defaults.postBlurSmoothing), 0.0F, 2.0F);
 		a_defaults.petzvalStrength = Clamp(ReadFloat(a_section, L"PetzvalStrength", a_defaults.petzvalStrength), 0.0F, 2.0F);
+		a_defaults.apertureBokeh = ReadBool(a_section, L"ApertureBokeh", a_defaults.apertureBokeh);
+		a_defaults.apertureBlades = std::clamp(
+			ReadUInt(a_section, L"ApertureBlades", a_defaults.apertureBlades), 3U, 12U);
+		a_defaults.apertureRoundness = Clamp(
+			ReadFloat(a_section, L"ApertureRoundness", a_defaults.apertureRoundness), 0.0F, 1.0F);
+		a_defaults.apertureShapeStrength = Clamp(
+			ReadFloat(a_section, L"ApertureShapeStrength", a_defaults.apertureShapeStrength), 0.0F, 1.0F);
+		a_defaults.apertureRotationDegrees = Clamp(
+			ReadFloat(a_section, L"ApertureRotationDegrees", a_defaults.apertureRotationDegrees), 0.0F, 360.0F);
 		return a_defaults;
 	}
 
@@ -159,6 +169,11 @@ namespace
 		success = WriteFloat(a_section, L"HighlightBoost", a_settings.highlightBoost) && success;
 		success = WriteFloat(a_section, L"PostBlurSmoothing", a_settings.postBlurSmoothing) && success;
 		success = WriteFloat(a_section, L"PetzvalStrength", a_settings.petzvalStrength) && success;
+		success = WriteBool(a_section, L"ApertureBokeh", a_settings.apertureBokeh) && success;
+		success = WriteUInt(a_section, L"ApertureBlades", std::clamp(a_settings.apertureBlades, 3U, 12U)) && success;
+		success = WriteFloat(a_section, L"ApertureRoundness", a_settings.apertureRoundness) && success;
+		success = WriteFloat(a_section, L"ApertureShapeStrength", a_settings.apertureShapeStrength) && success;
+		success = WriteFloat(a_section, L"ApertureRotationDegrees", a_settings.apertureRotationDegrees) && success;
 		WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
 		return success;
 	}
@@ -274,6 +289,26 @@ bool CDoF::SaveTargetFocusSettings(const TargetFocusSettings& a_settings)
 	const auto success = SaveTargetFocusSection(kTargetFocusSection, a_settings);
 	if (success) {
 		spdlog::info("Target focus settings saved");
+	}
+	return success;
+}
+
+CDoF::ModeSettings CDoF::LoadModeSettings()
+{
+	ModeSettings result{};
+	result.normalGameplayEnabled = ReadBool(
+		kModeSection, L"NormalGameplayEnabled", result.normalGameplayEnabled);
+	spdlog::info("Mode settings loaded: normal gameplay DoF={}", result.normalGameplayEnabled);
+	return result;
+}
+
+bool CDoF::SaveModeSettings(const ModeSettings& a_settings)
+{
+	const auto success = WriteBool(
+		kModeSection, L"NormalGameplayEnabled", a_settings.normalGameplayEnabled);
+	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
+	if (success) {
+		spdlog::info("Mode settings saved");
 	}
 	return success;
 }

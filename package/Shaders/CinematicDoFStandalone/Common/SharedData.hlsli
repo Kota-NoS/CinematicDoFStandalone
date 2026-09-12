@@ -7,6 +7,9 @@ namespace SharedData
 	{
 		float4 CameraData;
 		float4 BufferDim;
+		// xy: active render-area origin in the input allocation, in pixels.
+		// zw: reciprocal dimensions of the full input allocation.
+		float4 InputRegion;
 	};
 
 	float GetScreenDepth(float depth)

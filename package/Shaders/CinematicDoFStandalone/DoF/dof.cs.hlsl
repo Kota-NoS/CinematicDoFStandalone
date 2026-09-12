@@ -129,7 +129,9 @@ Texture2D<float> TexCoCBlurredInput : register(t4);
 Texture2D<float4> TexFarBlur : register(t5);
 Texture2D<float4> TexNearBlur : register(t6);
 Texture2D<float4> TexPostSmoothInput : register(t7);
-Texture2D<float4> TexBokehShape : register(t8);
+Texture2D<float4> TexFarGatherColor1 : register(t8);
+Texture2D<float4> TexFarGatherColor2 : register(t9);
+Texture2D<float4> TexFarGatherColor3 : register(t10);
 
 cbuffer DoFCB : register(b1)
 {
@@ -151,12 +153,13 @@ cbuffer DoFCB : register(b1)
 	uint AutoFocus;
 	float AutoFocusOffsetPlane;
 	uint TargetGuardEnabled;
-	uint pad;
+	float ApertureShapeStrength;
 	float2 TargetGuardCenter;
 	float2 TargetGuardRadius;
 	float NearFocusRangeMeters;
 	float FarFocusRangeMeters;
-	uint2 pad2;
+	uint ApertureBlades;
+	float ApertureRoundness;
 	float2 HeadGuardCenter;
 	float HeadGuardRadius;
 	uint pad3;
@@ -168,6 +171,64 @@ cbuffer DoFCB : register(b1)
 
 static const float blurPixelSizeLength = length(SharedData::BufferDim.zw) * 0.5f;
 static const float invBlurPixelSizeLength = 1.0f / blurPixelSizeLength;
+
+uint2 GetFullResolutionDimensions()
+{
+	return max(uint2(1, 1), uint2(SharedData::BufferDim.xy));
+}
+
+uint2 GetHalfResolutionDimensions()
+{
+	return max(uint2(1, 1), uint2(SharedData::BufferDim.xy * 0.5f));
+}
+
+bool IsOutsideFullResolution(uint2 pixel)
+{
+	return any(pixel >= GetFullResolutionDimensions());
+}
+
+bool IsOutsideHalfResolution(uint2 pixel)
+{
+	return any(pixel >= GetHalfResolutionDimensions());
+}
+
+float2 ClampToTexelCentres(float2 uv, float2 texelSize)
+{
+	float2 halfTexel = texelSize * 0.5f;
+	return clamp(uv, halfTexel, 1.0f - halfTexel);
+}
+
+float2 ClampFullResolutionUV(float2 uv)
+{
+	return ClampToTexelCentres(uv, SharedData::BufferDim.zw);
+}
+
+float2 ClampHalfResolutionUV(float2 uv)
+{
+	return ClampToTexelCentres(uv, rcp(float2(GetHalfResolutionDimensions())));
+}
+
+uint2 GetInputPixel(uint2 renderPixel)
+{
+	return renderPixel + uint2(SharedData::InputRegion.xy);
+}
+
+float2 GetInputUV(float2 renderUV)
+{
+	float2 clampedRenderUV = ClampFullResolutionUV(renderUV);
+	return (SharedData::InputRegion.xy + clampedRenderUV * SharedData::BufferDim.xy) *
+	       SharedData::InputRegion.zw;
+}
+
+uint2 ClampFullResolutionPixel(int2 pixel)
+{
+	return uint2(clamp(pixel, int2(0, 0), int2(GetFullResolutionDimensions()) - 1));
+}
+
+uint2 ClampHalfResolutionPixel(int2 pixel)
+{
+	return uint2(clamp(pixel, int2(0, 0), int2(GetHalfResolutionDimensions()) - 1));
+}
 
 struct FocusInfo
 {
@@ -192,7 +253,7 @@ struct DiscBlurInfo
 
 float GetDepth(float2 uv)
 {
-	float depth = DepthTexture.SampleLevel(LinearSampler, uv, 0);
+	float depth = DepthTexture.SampleLevel(LinearSampler, GetInputUV(uv), 0);
 	depth = SharedData::GetScreenDepth(depth) * GAME_UNIT_TO_M * 0.001f;  // in KM
 	return max(depth, 1e-6);
 }
@@ -317,20 +378,51 @@ void FillFocusInfoData(inout FocusInfo toFill)
 	toFill.farPlaneInMM = hyperFocalFocusDepthFocus / (hyperFocal - (toFill.focusDepthInMM - FocalLength));     // in mm
 }
 
-// Gets the tap from the shape pointed at with the shapeSampler specified, over the angle specified, from the distance of the center in shapeRingDistance
-// Returns in rgb the shape sample, and in a the luma.
-float4 GetShapeTap(float angle, float shapeRingDistance)
+// Return the radial boundary of a regular polygon at this angle. The polygon is
+// inscribed in the normal circular gather disc; roundness and strength blend its
+// boundary back toward the original circle. Moving the gather samples themselves
+// makes the aperture silhouette visible without relying on a sampled mask weight.
+float GetApertureRadius(float angle)
 {
-	float2 pointOffsetForShape = 0.f;
+	float blades = max((float)ApertureBlades, 3.0f);
+	float sector = Math::TAU / blades;
+	float halfSector = sector * 0.5f;
+	float rotation = Math::TAU * HighlightShapeRotationAngle;
+	float localAngle = fmod(angle - rotation + halfSector + Math::TAU * 2.0f, sector) - halfSector;
+	float polygonRadius = cos(halfSector) / max(cos(localAngle), 1e-4f);
+	return lerp(polygonRadius, 1.0f, saturate(ApertureRoundness));
+}
 
-	// we have to add 270 degrees to the custom angle, because it's scatter via gather, so a pixel that has to show the top of our shape is *above*
-	// the highlight, and the angle has to be 270 degrees to hit it (as sampling the highlight *below it* is what makes it brighter).
-	sincos(angle + (Math::TAU * HighlightShapeRotationAngle) + (Math::TAU * 0.75f), pointOffsetForShape.x, pointOffsetForShape.y);
-	pointOffsetForShape.y *= -1.0f;
-	float2 shapeTapCoords = float2((shapeRingDistance * pointOffsetForShape) + 0.5f);  // shapeRingDistance is [0, 0.5] so no need to multiply with 0.5 again
-	float4 shapeTap = TexBokehShape.SampleLevel(LinearSampler, shapeTapCoords, 0);
-	shapeTap.a = Color::RGBToLuminance(shapeTap.rgb);
-	return shapeTap;
+float2 ApplyApertureShape(float2 pointOffset, float angle)
+{
+	if (HighlightShape == 0)
+		return pointOffset;
+	float apertureRadius = GetApertureRadius(angle);
+	return pointOffset * lerp(1.0f, apertureRadius, saturate(ApertureShapeStrength));
+}
+
+// Test 4 keeps the physically neutral shaped gather from Test 2, but preserves
+// the brightest eligible shaped sample instead of diluting it into the complete
+// gather average. HighlightBoost blends toward that peak without exceeding the
+// sampled source highlight, so small lights can form a readable aperture shape
+// without adding an unrestricted bloom term. Disabling aperture bokeh leaves
+// the public 0.8.31 path unchanged.
+float CalculateApertureHighlightWeight(float3 color, float normalizedRadius, float defocusAmount)
+{
+	if (HighlightShape == 0 || HighlightBoost <= 0.0f)
+		return 0.0f;
+
+	float luma = Color::RGBToLuminance(color);
+	float brightMask = smoothstep(0.25f, 0.85f, luma);
+	float rimWeight = lerp(0.15f, 1.0f, smoothstep(0.25f, 1.0f, normalizedRadius));
+	float defocusWeight = smoothstep(0.20f, 1.0f, saturate(defocusAmount));
+	return brightMask * rimWeight * defocusWeight * saturate(ApertureShapeStrength);
+}
+
+float3 BlendApertureHighlight(float3 blurredColor, float3 highlightPeak)
+{
+	float highlightBlend = saturate(HighlightBoost * 3.0f);
+	return lerp(blurredColor, max(blurredColor, highlightPeak), highlightBlend);
 }
 
 float CalculateBlurDiscSize(FocusInfo focusInfo)
@@ -364,28 +456,28 @@ float CalculateBlurDiscSize(FocusInfo focusInfo)
 	return signedFocusDistance < 0.0f ? -toReturn : toReturn;
 }
 
-float GetBlurDiscRadiusFromSource(Texture2D<float> source, float2 texcoord, bool flattenToZero)
+float GetBlurDiscRadiusFromSource(Texture2D<float> source, float2 texcoord, bool flattenToZero, float2 sourceTexelSize)
 {
-	float coc = source.SampleLevel(LinearSampler, texcoord, 0).x;
+	float coc = source.SampleLevel(LinearSampler, ClampToTexelCentres(texcoord, sourceTexelSize), 0).x;
 	// we're only interested in negative coc's (near plane). All coc's in focus/far plane are flattened to 0. Return the
 	// absolute value of the coc as we're working with positive blurred CoCs (as the sign is no longer needed)
 	return (flattenToZero && coc >= 0) ? 0 : abs(coc);
 }
 
-float PerformSingleValueGaussianBlur(Texture2D<float> source, float2 texcoord, float2 offsetWeight, bool flattenToZero)
+float PerformSingleValueGaussianBlur(Texture2D<float> source, float2 texcoord, float2 offsetWeight, bool flattenToZero, float2 sourceTexelSize)
 {
 	const float offset[18] = { 0.0, 1.4953705027, 3.4891992113, 5.4830312105, 7.4768683759, 9.4707125766, 11.4645656736, 13.4584295168, 15.4523059431, 17.4461967743, 19.4661974725, 21.4627427973, 23.4592916956, 25.455844494, 27.4524015179, 29.4489630909, 31.445529535, 33.4421011704 };
 	const float weight[18] = { 0.033245, 0.0659162217, 0.0636705814, 0.0598194658, 0.0546642566, 0.0485871646, 0.0420045997, 0.0353207015, 0.0288880982, 0.0229808311, 0.0177815511, 0.013382297, 0.0097960001, 0.0069746748, 0.0048301008, 0.0032534598, 0.0021315311, 0.0013582974 };
 
-	float coc = GetBlurDiscRadiusFromSource(source, texcoord, flattenToZero);
+	float coc = GetBlurDiscRadiusFromSource(source, texcoord, flattenToZero, sourceTexelSize);
 	coc *= weight[0];
 
 	float2 factorToUse = offsetWeight * NearPlaneMaxBlur * 0.8f;
 	for (int i = 1; i < 18; ++i) {
 		float2 coordOffset = factorToUse * offset[i];
 		float weightSample = weight[i];
-		coc += GetBlurDiscRadiusFromSource(source, texcoord + coordOffset, flattenToZero) * weightSample;
-		coc += GetBlurDiscRadiusFromSource(source, texcoord - coordOffset, flattenToZero) * weightSample;
+		coc += GetBlurDiscRadiusFromSource(source, texcoord + coordOffset, flattenToZero, sourceTexelSize) * weightSample;
+		coc += GetBlurDiscRadiusFromSource(source, texcoord - coordOffset, flattenToZero, sourceTexelSize) * weightSample;
 	}
 
 	return saturate(coc);
@@ -401,10 +493,19 @@ float3 ConeOverlap(float3 fragment)
 
 float3 AccentuateWhites(float3 fragment)
 {
-	// apply small tow to the incoming fragment, so the whitepoint gets slightly lower than max.
-	// We don't need to de-tonemap since we are under HDR.
-	// fragment = pow(abs(ConeOverlap(fragment)), 1);
-	return fragment / (HighlightBoost > 0.f ? max((1.001 - (HighlightBoost * fragment)), 0.001) : 1.0f);
+	if (HighlightBoost <= 0.0f)
+		return fragment;
+
+	// The legacy per-channel reciprocal could approach a zero denominator when an
+	// HDR/PBR reflection reached roughly 1 / HighlightBoost. That turned even a
+	// 0.10 setting into an extreme, hue-shifting amplification. Derive one bounded
+	// gain from display-range luminance instead: ordinary highlights keep a similar
+	// response, HDR magnitude cannot increase it further, and colour ratios remain
+	// unchanged. The denominator floor caps the additional gain at 2x.
+	float safeBoost = saturate(HighlightBoost);
+	float referenceLuma = saturate(Color::RGBToLuminance(max(fragment, 0.0f)));
+	float gain = rcp(max(1.001f - safeBoost * referenceLuma, 0.5f));
+	return fragment * gain;
 }
 
 // returns 2 vectors, (x,y) are up vector, (z,w) are right vector.
@@ -451,9 +552,9 @@ float PerformTileGatherHorizontal(uint2 DTid)
 	float coc;
 	float2 offset = uint2(1, 0);
 	for (float i = 0; i <= tileSize; ++i) {
-		coc = TexCoCInput[DTid + offset].r;
+		coc = TexCoCInput[ClampFullResolutionPixel(int2(DTid) + int2(offset))].r;
 		minCoC = min(minCoC, coc);
-		coc = TexCoCInput[DTid - offset].r;
+		coc = TexCoCInput[ClampFullResolutionPixel(int2(DTid) - int2(offset))].r;
 		minCoC = min(minCoC, coc);
 		offset.x += 1;
 	}
@@ -469,9 +570,9 @@ float PerformTileGatherVertical(uint2 DTid)
 	float coc;
 	float2 offset = uint2(0, 1);
 	for (float i = 0; i <= tileSize; ++i) {
-		coc = TexCoCInput[DTid + offset].r;
+		coc = TexCoCInput[ClampFullResolutionPixel(int2(DTid) + int2(offset))].r;
 		minCoC = min(minCoC, coc);
-		coc = TexCoCInput[DTid - offset].r;
+		coc = TexCoCInput[ClampFullResolutionPixel(int2(DTid) - int2(offset))].r;
 		minCoC = min(minCoC, coc);
 		offset.y += 1;
 	}
@@ -489,8 +590,8 @@ float PerformNeighborTileGather(uint2 DTid)
 	uint2 baseOffset = uint2(tileSizeX * 2 + 1, tileSizeY * 2 + 1);
 	for (float i = -1; i < 2; i++) {
 		for (float j = -1; j < 2; j++) {
-			uint2 coordOffset = uint2(baseOffset.x * i, baseOffset.y * j);
-			float coc = TexCoCInput[DTid + coordOffset].r;
+			int2 coordOffset = int2(baseOffset) * int2(i, j);
+			float coc = TexCoCInput[ClampFullResolutionPixel(int2(DTid) + coordOffset)].r;
 			minCoC = min(minCoC, coc);
 		}
 	}
@@ -507,7 +608,7 @@ float4 PerformPreDiscBlur(DiscBlurInfo blurInfo, Texture2D source)
 	const float radiusFactor = 1.0 / max(blurInfo.numberOfRings, 1);
 	const float pointsFirstRing = max(blurInfo.numberOfRings - 3, 2);  // each ring has a multiple of this value of sample points.
 
-	float4 fragment = source.SampleLevel(LinearSampler, blurInfo.texcoord, 0);
+	float4 fragment = source.SampleLevel(LinearSampler, GetInputUV(blurInfo.texcoord), 0);
 	fragment.rgb = AccentuateWhites(fragment.rgb);
 	return fragment;
 }
@@ -535,17 +636,19 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	for (int i = 1; i < 6; ++i) {
 		float2 coordOffset = factorToUse * offset[i];
 		float weightSample = weight[i];
-		float sampleCoC = TexCoCInput.SampleLevel(LinearSampler, texcoord + coordOffset, 0).r;
+		float2 positiveUV = ClampFullResolutionUV(texcoord + coordOffset);
+		float sampleCoC = TexCoCInput.SampleLevel(LinearSampler, positiveUV, 0).r;
 		float maskFactor = abs(sampleCoC) < 0.2;
 
 		fragment += (originalFragment * maskFactor * weightSample) +
-		            (source.SampleLevel(LinearSampler, texcoord + coordOffset, 0) * (1 - maskFactor) * weightSample);
+		            (source.SampleLevel(LinearSampler, positiveUV, 0) * (1 - maskFactor) * weightSample);
 
-		sampleCoC = TexCoCInput.SampleLevel(LinearSampler, texcoord - coordOffset, 0).r;
+		float2 negativeUV = ClampFullResolutionUV(texcoord - coordOffset);
+		sampleCoC = TexCoCInput.SampleLevel(LinearSampler, negativeUV, 0).r;
 		maskFactor = abs(sampleCoC) < 0.2;
 
 		fragment += (originalFragment * maskFactor * weightSample) +
-		            (source.SampleLevel(LinearSampler, texcoord - coordOffset, 0) * (1 - maskFactor) * weightSample);
+		            (source.SampleLevel(LinearSampler, negativeUV, 0) * (1 - maskFactor) * weightSample);
 	}
 	return fragment;
 }
@@ -562,7 +665,7 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 		return;
 
 	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
-	float4 color = TexColor[DTid];
+	float4 color = TexColor[GetInputPixel(DTid)];
 
 	FocusInfo focusInfo;
 	focusInfo.texcoord = uv;
@@ -582,31 +685,52 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 }
 
 [numthreads(8, 8, 1)] void CS_CoCTile1(uint2 DTid : SV_DispatchThreadID) {
+	if (IsOutsideFullResolution(DTid))
+		return;
+
 	RWTexCoC[DTid] = PerformTileGatherHorizontal(DTid);
 }
 
 	[numthreads(8, 8, 1)] void CS_CoCTile2(uint2 DTid : SV_DispatchThreadID)
 {
+	if (IsOutsideFullResolution(DTid))
+		return;
+
 	RWTexCoC[DTid] = PerformTileGatherVertical(DTid);
 }
 
 [numthreads(8, 8, 1)] void CS_CoCTileNeighbor(uint2 DTid : SV_DispatchThreadID) {
+	if (IsOutsideFullResolution(DTid))
+		return;
+
 	RWTexCoC[DTid] = PerformNeighborTileGather(DTid);
 }
 
 	[numthreads(8, 8, 1)] void CS_CoCGaussian1(uint2 DTid : SV_DispatchThreadID)
 {
+	if (IsOutsideHalfResolution(DTid))
+		return;
+
 	float2 uv = 2.0f * (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
-	RWTexCoC[DTid] = PerformSingleValueGaussianBlur(TexCoCInput, uv, float2(2.0f * SharedData::BufferDim.z, 0.0f), true);
+	RWTexCoC[DTid] = PerformSingleValueGaussianBlur(
+		TexCoCInput, uv, float2(2.0f * SharedData::BufferDim.z, 0.0f), true, SharedData::BufferDim.zw);
 }
 
 [numthreads(8, 8, 1)] void CS_CoCGaussian2(uint2 DTid : SV_DispatchThreadID) {
+	if (IsOutsideHalfResolution(DTid))
+		return;
+
 	float2 uv = 2.0f * (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
-	RWTexCoC[DTid] = PerformSingleValueGaussianBlur(TexCoCInput, uv, float2(0.0f, 2.0f * SharedData::BufferDim.w), false);
+	RWTexCoC[DTid] = PerformSingleValueGaussianBlur(
+		TexCoCInput, uv, float2(0.0f, 2.0f * SharedData::BufferDim.w), false,
+		rcp(float2(GetHalfResolutionDimensions())));
 }
 
 	[numthreads(8, 8, 1)] void CS_Blur(uint2 DTid : SV_DispatchThreadID)
 {
+	if (IsOutsideHalfResolution(DTid))
+		return;
+
 	DiscBlurInfo blurInfo;
 	blurInfo.texcoord = 2.0f * (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
 	blurInfo.numberOfRings = round(BlurQuality);
@@ -618,7 +742,72 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	RWTexOut[DTid] = color;
 }
 
+// First-stage density experiment: build a three-level color pyramid from the
+// existing half-resolution pre-blur.  Only far-plane gather consumes it; the
+// near plane, CoC preparation, combiner, and Test 4 aperture math are unchanged.
+[numthreads(8, 8, 1)] void CS_ReduceColor(uint2 DTid : SV_DispatchThreadID)
+{
+	uint sourceWidth;
+	uint sourceHeight;
+	TexColor.GetDimensions(sourceWidth, sourceHeight);
+	uint2 outputDimensions = max(uint2(1, 1), (uint2(sourceWidth, sourceHeight) + 1u) / 2u);
+	if (any(DTid >= outputDimensions))
+		return;
+
+	int2 basePixel = int2(DTid) * 2;
+	int2 sourceMaximum = int2(sourceWidth, sourceHeight) - 1;
+	float4 color = 0.0f;
+	[unroll] for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex)
+	{
+		int2 offset = int2(sampleIndex & 1, sampleIndex >> 1);
+		color += TexColor[clamp(basePixel + offset, int2(0, 0), sourceMaximum)];
+	}
+	RWTexOut[DTid] = color * 0.25f;
+}
+
+float GetFarGatherMip(float kernelRadiusInPixels, float ringCount)
+{
+	// Mip 0 is already half resolution. Match each tap to the average radial
+	// spacing of the current concentric-ring kernel. Test 2 deliberately delays
+	// each coarser-level transition until the spacing reaches the next full power
+	// of two, preserving more aperture-edge detail than Test 1.
+	float halfResolutionRadius = kernelRadiusInPixels * 0.5f;
+	float sampleSpacing = halfResolutionRadius / max(ringCount + 0.5f, 1.0f);
+	return clamp(floor(log2(max(sampleSpacing, 1.0f))), 0.0f, 3.0f);
+}
+
+float4 SampleFarGatherColor(float2 uv, float mip)
+{
+	uint width = 1;
+	uint height = 1;
+	float4 color = 0.0f;
+	if (mip < 0.5f)
+	{
+		TexColor.GetDimensions(width, height);
+		color = TexColor.SampleLevel(LinearSampler, ClampToTexelCentres(uv, rcp(float2(width, height))), 0);
+	}
+	else if (mip < 1.5f)
+	{
+		TexFarGatherColor1.GetDimensions(width, height);
+		color = TexFarGatherColor1.SampleLevel(LinearSampler, ClampToTexelCentres(uv, rcp(float2(width, height))), 0);
+	}
+	else if (mip < 2.5f)
+	{
+		TexFarGatherColor2.GetDimensions(width, height);
+		color = TexFarGatherColor2.SampleLevel(LinearSampler, ClampToTexelCentres(uv, rcp(float2(width, height))), 0);
+	}
+	else
+	{
+		TexFarGatherColor3.GetDimensions(width, height);
+		color = TexFarGatherColor3.SampleLevel(LinearSampler, ClampToTexelCentres(uv, rcp(float2(width, height))), 0);
+	}
+	return color;
+}
+
 [numthreads(8, 8, 1)] void CS_FarBlur(uint2 DTid : SV_DispatchThreadID) {
+	if (IsOutsideHalfResolution(DTid))
+		return;
+
 	DiscBlurInfo blurInfo;
 	blurInfo.texcoord = 2.0f * (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
 	blurInfo.numberOfRings = round(BlurQuality);
@@ -627,8 +816,8 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	blurInfo.cocFactorPerPixel = blurPixelSizeLength * blurInfo.farPlaneMaxBlurInPixels;  // not needed for near plane.
 
 	const float pointsFirstRing = 7;  // each ring has a multiple of this value of sample points.
-	float4 color = TexColor[DTid];
-	float colorRadius = TexCoCInput[2 * DTid].r;
+	float4 color = TexColor[ClampHalfResolutionPixel(int2(DTid))];
+	float colorRadius = TexCoCInput[ClampFullResolutionPixel(int2(2 * DTid))].r;
 	// we'll not process near plane fragments as they're processed in a separate pass.
 	if (colorRadius < blurPixelSizeLength || blurInfo.farPlaneMaxBlurInPixels <= 0) {
 		// near plane fragment, will be done in near plane pass
@@ -637,36 +826,38 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	}
 	float bokehBusyFactorToUse = saturate(1.0 - BokehBusyFactor);  // use the busy factor as an edge bias on the blur, not the highlights
 	float4 average = float4(color.rgb * colorRadius * bokehBusyFactorToUse, bokehBusyFactorToUse);
+	float3 apertureHighlightPeak = 0.0f;
 	float2 pointOffset = float2(0, 0);
 	float2 ringRadiusDeltaCoords = (SharedData::BufferDim.zw * blurInfo.farPlaneMaxBlurInPixels * colorRadius) / blurInfo.numberOfRings;
 	float2 currentRingRadiusCoords = ringRadiusDeltaCoords;
 	float cocPerRing = (colorRadius * FarPlaneMaxBlur) / blurInfo.numberOfRings;
+	float gatherMip = GetFarGatherMip(blurInfo.farPlaneMaxBlurInPixels * colorRadius, blurInfo.numberOfRings);
 	float ringDistance = 0;
 	float pointsOnRing = pointsFirstRing;
-	bool useShape = HighlightShape > 0;
-	float4 shapeTap = float4(1.0f, 1.0f, 1.0f, 1.0f);
 	for (float ringIndex = 0; ringIndex < blurInfo.numberOfRings; ringIndex++) {
 		float anglePerPoint = Math::TAU / pointsOnRing;
 		float angle = anglePerPoint;
 		float ringWeight = lerp(ringIndex / blurInfo.numberOfRings, 1, bokehBusyFactorToUse);
+		float normalizedRingRadius = (ringIndex + 1.0f) / blurInfo.numberOfRings;
 		ringDistance += cocPerRing;
-		float shapeRingDistance = ((ringIndex + 1) / blurInfo.numberOfRings) * 0.5f;
 		for (float pointNumber = 0; pointNumber < pointsOnRing; pointNumber++) {
 			sincos(angle, pointOffset.y, pointOffset.x);
-			// shapeLuma is in Alpha
-			if (useShape)
-				shapeTap = GetShapeTap(angle, shapeRingDistance);
-			else
-				pointOffset = ApplyPetzvalMorph(pointOffset, blurInfo.texcoord);
+			pointOffset = ApplyApertureShape(pointOffset, angle);
+			pointOffset = ApplyPetzvalMorph(pointOffset, blurInfo.texcoord);
 			float2 tapCoords = float2(blurInfo.texcoord + (pointOffset * currentRingRadiusCoords));
-			float sampleRadius = TexCoCInput.SampleLevel(LinearSampler, tapCoords, 0).r;
+			float2 fullResolutionTap = ClampFullResolutionUV(tapCoords);
+			float2 halfResolutionTap = ClampHalfResolutionUV(tapCoords);
+			float sampleRadius = TexCoCInput.SampleLevel(LinearSampler, fullResolutionTap, 0).r;
 			float4 tap = 0;
-			float weight = (sampleRadius >= 0) * ringWeight * CalculateSampleWeight(sampleRadius * FarPlaneMaxBlur, ringDistance) * (shapeTap.a > 0.01 ? 1.0f : 0.0f);
+			float weight = (sampleRadius >= 0) * ringWeight * CalculateSampleWeight(sampleRadius * FarPlaneMaxBlur, ringDistance);
 			// adjust the weight for samples which are in front of the fragment, as they have to get their weight boosted so we don't see edges bleeding through.
 			// as otherwise they'll get a weight that's too low relatively to the pixels sampled from the plane the fragment is in.The 3.0 value is empirically determined.
 			weight *= (1.0 + min(FarPlaneMaxBlur, 3.0f) * saturate(colorRadius - sampleRadius));
-			if (weight > 0)
-				tap = TexColor.SampleLevel(LinearSampler, tapCoords, 0);
+			if (weight > 0) {
+				tap = SampleFarGatherColor(halfResolutionTap, gatherMip);
+				float apertureHighlightWeight = CalculateApertureHighlightWeight(tap.rgb, normalizedRingRadius, colorRadius);
+				apertureHighlightPeak = max(apertureHighlightPeak, tap.rgb * apertureHighlightWeight);
+			}
 			average.rgb += tap.rgb * weight;
 			average.w += weight;
 			angle += anglePerPoint;
@@ -674,12 +865,17 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 		pointsOnRing += pointsFirstRing;
 		currentRingRadiusCoords += ringRadiusDeltaCoords;
 	}
-	color.rgb = average.rgb / (average.w + (average.w == 0));
+	float inverseWeight = rcp(average.w + (average.w == 0));
+	color.rgb = average.rgb * inverseWeight;
+	color.rgb = BlendApertureHighlight(color.rgb, apertureHighlightPeak);
 	RWTexOut[DTid] = color;
 }
 
 	[numthreads(8, 8, 1)] void CS_NearBlur(uint2 DTid : SV_DispatchThreadID)
 {
+	if (IsOutsideHalfResolution(DTid))
+		return;
+
 	DiscBlurInfo blurInfo;
 	blurInfo.texcoord = 2.0f * (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
 	blurInfo.numberOfRings = round(BlurQuality);
@@ -687,9 +883,11 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	blurInfo.nearPlaneMaxBlurInPixels = (NearPlaneMaxBlur * 0.01f) * invBlurPixelSizeLength;
 	blurInfo.cocFactorPerPixel = blurPixelSizeLength * blurInfo.farPlaneMaxBlurInPixels;  // not needed for near plane.
 
-	float4 color = TexColor[DTid];
+	float4 color = TexColor[ClampHalfResolutionPixel(int2(DTid))];
 	// r contains blurred CoC, g contains original CoC. Original is negative.
-	float2 colorRadii = float2(TexCoCBlurredInput[DTid], TexCoCInput[2 * DTid]);
+	float2 colorRadii = float2(
+		TexCoCBlurredInput[ClampHalfResolutionPixel(int2(DTid))],
+		TexCoCInput[ClampFullResolutionPixel(int2(2 * DTid))]);
 	float colorRadiusToUse = colorRadii.r;
 
 	if (colorRadii.r <= blurPixelSizeLength) {
@@ -706,40 +904,43 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	// luma is stored in alpha
 	float bokehBusyFactorToUse = saturate(1.0 - BokehBusyFactor);  // use the busy factor as an edge bias on the blur, not the highlights
 	float4 average = float4(color.rgb * colorRadiusToUse * bokehBusyFactorToUse, bokehBusyFactorToUse);
+	float3 apertureHighlightPeak = 0.0f;
 	float2 pointOffset = float2(0, 0);
 	float nearPlaneBlurInPixels = blurInfo.nearPlaneMaxBlurInPixels * colorRadiusToUse;
 	float2 ringRadiusDeltaCoords = float2(SharedData::BufferDim.z, SharedData::BufferDim.w) * (nearPlaneBlurInPixels / (numberOfRings - 1));
 	float pointsOnRing = pointsFirstRing;
 	float2 currentRingRadiusCoords = ringRadiusDeltaCoords;
-	bool useShape = HighlightShape > 0;
-	float4 shapeTap = float4(1.0f, 1.0f, 1.0f, 1.0f);
 	for (float ringIndex = 0; ringIndex < numberOfRings; ringIndex++) {
 		float anglePerPoint = Math::TAU / pointsOnRing;
 		float angle = anglePerPoint;
 		// no further weight needed, bleed all you want.
 		float weight = lerp(ringIndex / numberOfRings, 1, smoothstep(0, 1, bokehBusyFactorToUse));
-		float shapeRingDistance = ((ringIndex + 1) / numberOfRings) * 0.5f;
+		float normalizedRingRadius = (ringIndex + 1.0f) / numberOfRings;
 		for (float pointNumber = 0; pointNumber < pointsOnRing; pointNumber++) {
 			sincos(angle, pointOffset.y, pointOffset.x);
-			// shapeLuma is in Alpha
-			if (useShape)
-				shapeTap = GetShapeTap(angle, shapeRingDistance);
-			else
-				pointOffset = ApplyPetzvalMorph(pointOffset, blurInfo.texcoord);
+			pointOffset = ApplyApertureShape(pointOffset, angle);
+			pointOffset = ApplyPetzvalMorph(pointOffset, blurInfo.texcoord);
 			float2 tapCoords = float2(blurInfo.texcoord + (pointOffset * currentRingRadiusCoords));
-			float4 tap = TexColor.SampleLevel(LinearSampler, tapCoords, 0);
+			float2 fullResolutionTap = ClampFullResolutionUV(tapCoords);
+			float2 halfResolutionTap = ClampHalfResolutionUV(tapCoords);
+			float4 tap = TexColor.SampleLevel(LinearSampler, halfResolutionTap, 0);
+			float apertureHighlightWeight = CalculateApertureHighlightWeight(tap.rgb, normalizedRingRadius, colorRadiusToUse);
+			apertureHighlightPeak = max(apertureHighlightPeak, tap.rgb * apertureHighlightWeight);
 			// r contains blurred CoC, g contains original CoC. Original can be negative
-			float2 sampleRadii = float2(TexCoCBlurredInput.SampleLevel(LinearSampler, tapCoords, 0), TexCoCInput.SampleLevel(LinearSampler, tapCoords, 0));
+			float2 sampleRadii = float2(
+				TexCoCBlurredInput.SampleLevel(LinearSampler, halfResolutionTap, 0),
+				TexCoCInput.SampleLevel(LinearSampler, fullResolutionTap, 0));
 			float blurredSampleRadius = sampleRadii.r;
-			float sampleWeight = weight * (shapeTap.a > 0.01 ? 1.0f : 0.0f);
-			average.rgb += tap.rgb * sampleWeight;
-			average.w += sampleWeight;
+			average.rgb += tap.rgb * weight;
+			average.w += weight;
 			angle += anglePerPoint;
 		}
 		pointsOnRing += pointsFirstRing;
 		currentRingRadiusCoords += ringRadiusDeltaCoords;
 	}
-	average.rgb /= (average.w + (average.w == 0));
+	float inverseWeight = rcp(average.w + (average.w == 0));
+	average.rgb *= inverseWeight;
+	average.rgb = BlendApertureHighlight(average.rgb, apertureHighlightPeak);
 	float alpha = saturate((min(2.5, NearPlaneMaxBlur) + 0.4) * (colorRadiusToUse > 0.1 ? (colorRadii.g <= 0 ? 2 : 1) * colorRadiusToUse : max(colorRadiusToUse, -colorRadii.g)));
 	color.rgb = average.rgb;
 	color.a = alpha;
@@ -747,29 +948,36 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 }
 
 [numthreads(8, 8, 1)] void CS_TentFilter(uint2 DTid : SV_DispatchThreadID) {
+	if (IsOutsideHalfResolution(DTid))
+		return;
+
 	float4 average;
-	uint4 offset = uint4(1, 1, -1, 0);
-	average = TexColor[DTid - offset.xy];
-	average += TexColor[DTid - offset.wy] * 2;
-	average += TexColor[DTid - offset.zy];
-	average += TexColor[DTid + offset.zw] * 2;
-	average += TexColor[DTid] * 4;
-	average += TexColor[DTid + offset.xw] * 2;
-	average += TexColor[DTid + offset.zy];
-	average += TexColor[DTid + offset.wy] * 2;
-	average += TexColor[DTid + offset.xy];
+	int2 pixel = int2(DTid);
+	average = TexColor[ClampHalfResolutionPixel(pixel + int2(-1, -1))];
+	average += TexColor[ClampHalfResolutionPixel(pixel + int2(0, -1))] * 2;
+	average += TexColor[ClampHalfResolutionPixel(pixel + int2(1, -1))];
+	average += TexColor[ClampHalfResolutionPixel(pixel + int2(-1, 0))] * 2;
+	average += TexColor[ClampHalfResolutionPixel(pixel)] * 4;
+	average += TexColor[ClampHalfResolutionPixel(pixel + int2(1, 0))] * 2;
+	average += TexColor[ClampHalfResolutionPixel(pixel + int2(-1, 1))];
+	average += TexColor[ClampHalfResolutionPixel(pixel + int2(0, 1))] * 2;
+	average += TexColor[ClampHalfResolutionPixel(pixel + int2(1, 1))];
 	average /= 16;
 	RWTexOut[DTid] = average;
 }
 
 	[numthreads(8, 8, 1)] void CS_Combiner(uint2 DTid : SV_DispatchThreadID)
 {
+	if (IsOutsideFullResolution(DTid))
+		return;
+
 	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
 	// first blend far plane with original buffer, then near plane on top of that.
-	float4 originalFragment = TexColor[DTid];
+	float4 originalFragment = TexColor[GetInputPixel(DTid)];
 	originalFragment.rgb = AccentuateWhites(originalFragment.rgb);
-	float4 farFragment = TexFarBlur.SampleLevel(LinearSampler, uv, 0);
-	float4 nearFragment = TexNearBlur.SampleLevel(LinearSampler, uv, 0);
+	float2 halfResolutionUV = ClampHalfResolutionUV(uv);
+	float4 farFragment = TexFarBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
+	float4 nearFragment = TexNearBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
 	float pixelCoC = TexCoCInput[DTid].r;
 	// multiply with far plane max blur so if we need to have 0 blur we get full res
 	float realCoC = pixelCoC * saturate(FarPlaneMaxBlur);
@@ -787,6 +995,9 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 }
 
 [numthreads(8, 8, 1)] void CS_PostSmoothing1(uint2 DTid : SV_DispatchThreadID) {
+	if (IsOutsideFullResolution(DTid))
+		return;
+
 	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
 
 	RWTexOut[DTid] = PerformFullFragmentGaussianBlur(TexColor, uv, DTid, float2((SharedData::BufferDim.z), 0.0));
@@ -794,10 +1005,13 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 
 	[numthreads(8, 8, 1)] void CS_PostSmoothing2AndFocusing(uint2 DTid : SV_DispatchThreadID)
 {
+	if (IsOutsideFullResolution(DTid))
+		return;
+
 	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
 
 	float4 color = PerformFullFragmentGaussianBlur(TexPostSmoothInput, uv, DTid, float2(0.0, (SharedData::BufferDim.w)));
-	float4 originalColor = TexColor[DTid];
+	float4 originalColor = TexColor[GetInputPixel(DTid)];
 
 	float coc = abs(TexCoCInput[DTid].r);
 	color.rgb = lerp(originalColor.rgb, color.rgb, saturate(coc < length(SharedData::BufferDim.zw) ? 0 : 4 * coc));

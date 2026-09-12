@@ -2,7 +2,7 @@
 
 namespace CDoF
 {
-	inline constexpr std::uint32_t kPresetSlotCount{ 8 };
+	inline constexpr std::uint32_t kPresetSlotCount{ 9 };
 	inline constexpr std::uint32_t kMaxPresetIndex{ kPresetSlotCount - 1 };
 
 	enum class TargetFocusSource : std::uint32_t
@@ -34,6 +34,11 @@ namespace CDoF
 		float highlightBoost{ 0.0F };
 		float postBlurSmoothing{ 0.0F };
 		float petzvalStrength{ 0.0F };
+		bool apertureBokeh{ false };
+		std::uint32_t apertureBlades{ 6 };
+		float apertureRoundness{ 0.35F };
+		float apertureShapeStrength{ 1.0F };
+		float apertureRotationDegrees{ 0.0F };
 	};
 
 	struct TargetFocusSettings
@@ -46,9 +51,16 @@ namespace CDoF
 		float targetFocusOffsetMeters{ 0.0F };
 	};
 
+	struct ModeSettings
+	{
+		// Keep this outside Settings so loading or storing a lens preset never
+		// changes whether DoF is active during normal gameplay.
+		bool normalGameplayEnabled{ true };
+	};
+
 	struct InterfaceSettings
 	{
-		bool japanese{ true };
+		bool japanese{ false };
 	};
 
 	struct HotkeySettings
@@ -64,6 +76,8 @@ namespace CDoF
 	bool PresetSectionExists(const wchar_t* a_section);
 	TargetFocusSettings LoadTargetFocusSettings();
 	bool SaveTargetFocusSettings(const TargetFocusSettings& a_settings);
+	ModeSettings LoadModeSettings();
+	bool SaveModeSettings(const ModeSettings& a_settings);
 	TargetFocusSettings LoadPresetTargetFocusSettings(
 		const wchar_t* a_section,
 		TargetFocusSettings a_defaults);

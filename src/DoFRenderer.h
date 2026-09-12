@@ -10,6 +10,7 @@ namespace CDoF
 		static DoFRenderer& GetSingleton();
 
 		void SetSettings(Settings a_settings);
+		void SetModeSettings(ModeSettings a_settings);
 		void SetTargetFocus(
 			TargetFocusSettings a_settings,
 			Settings a_dialogueLensSettings);
@@ -47,6 +48,9 @@ namespace CDoF
 
 			Texture output;
 			Texture preBlurred;
+			Texture farGatherColor1;
+			Texture farGatherColor2;
+			Texture farGatherColor3;
 			Texture farBlurred;
 			Texture nearBlurred;
 			Texture blurredFiltered;
@@ -60,7 +64,6 @@ namespace CDoF
 			Texture cocTileNeighbor;
 			Texture cocBlur1;
 			Texture cocBlur2;
-
 			ComPtr<ID3D11Buffer> dofConstants;
 			ComPtr<ID3D11Buffer> sharedConstants;
 			ComPtr<ID3D11SamplerState> linearSampler;
@@ -76,6 +79,7 @@ namespace CDoF
 			ComPtr<ID3D11ComputeShader> cocGaussian1;
 			ComPtr<ID3D11ComputeShader> cocGaussian2;
 			ComPtr<ID3D11ComputeShader> blur;
+			ComPtr<ID3D11ComputeShader> reduceColor;
 			ComPtr<ID3D11ComputeShader> farBlur;
 			ComPtr<ID3D11ComputeShader> nearBlur;
 			ComPtr<ID3D11ComputeShader> tentFilter;
@@ -84,7 +88,11 @@ namespace CDoF
 			ComPtr<ID3D11ComputeShader> postSmoothing2AndFocusing;
 		};
 
-		bool EnsureResources(ID3D11Device* a_device, const D3D11_TEXTURE2D_DESC& a_inputDescription);
+		bool EnsureResources(
+			ID3D11Device* a_device,
+			const D3D11_TEXTURE2D_DESC& a_inputDescription,
+			std::uint32_t a_renderWidth,
+			std::uint32_t a_renderHeight);
 		bool CompileShaders(ID3D11Device* a_device);
 		bool CreateTexture(ID3D11Device* a_device, Texture& a_texture, DXGI_FORMAT a_format, std::uint32_t a_width, std::uint32_t a_height);
 		bool CreateConstantBuffer(ID3D11Device* a_device, std::uint32_t a_size, ComPtr<ID3D11Buffer>& a_buffer);
@@ -94,7 +102,11 @@ namespace CDoF
 			ID3D11ShaderResourceView* a_color,
 			ID3D11ShaderResourceView* a_depth,
 			const Settings& a_settings,
-			const TargetFocusSample* a_lowSpecTargetGuard);
+			const TargetFocusSample* a_lowSpecTargetGuard,
+			std::uint32_t a_inputWidth,
+			std::uint32_t a_inputHeight,
+			std::uint32_t a_renderLeft,
+			std::uint32_t a_renderTop);
 		bool IsMenuBlocked(const Settings& a_settings) const;
 		std::optional<TargetFocusSample> GetDialogueTargetFocus() const;
 		std::optional<TargetFocusSample> GetPlayerTargetFocus() const;
@@ -113,6 +125,7 @@ namespace CDoF
 		};
 
 		Settings settings_{};
+		ModeSettings modeSettings_{};
 		TargetFocusSettings targetFocusSettings_{};
 		Settings dialogueLensSettings_{};
 		Resources resources_{};
@@ -125,6 +138,7 @@ namespace CDoF
 		bool useLowSpecDepthFallback_{ false };
 		bool loggedDepthFallbackUnavailable_{ false };
 		bool loggedLowSpecTargetGuard_{ false };
+		bool loggedRenderAreaDiagnostics_{ false };
 		TargetFocusMode targetFocusMode_{ TargetFocusMode::kNone };
 		std::mutex mutex_;
 	};

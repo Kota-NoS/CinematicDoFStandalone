@@ -30,12 +30,13 @@ namespace
 		std::uint32_t autoFocus;
 		float autoFocusOffsetPlane;
 		std::uint32_t targetGuardEnabled;
-		std::uint32_t padding;
+		float apertureShapeStrength;
 		Float2 targetGuardCenter;
 		Float2 targetGuardRadius;
 		float nearFocusRangeMeters;
 		float farFocusRangeMeters;
-		std::uint32_t padding2[2];
+		std::uint32_t apertureBlades;
+		float apertureRoundness;
 		Float2 headGuardCenter;
 		float headGuardRadius;
 		std::uint32_t padding3;
@@ -48,8 +49,52 @@ namespace
 	{
 		std::array<float, 4> cameraData;
 		std::array<float, 4> bufferDimensions;
+		std::array<float, 4> inputRegion;
 	};
-	static_assert(sizeof(SharedConstants) == 32);
+	static_assert(sizeof(SharedConstants) == 48);
+
+	struct RenderArea
+	{
+		std::uint32_t left{};
+		std::uint32_t top{};
+		std::uint32_t width{};
+		std::uint32_t height{};
+	};
+
+	RenderArea GetActiveRenderArea(
+		ID3D11DeviceContext* a_context,
+		const D3D11_TEXTURE2D_DESC& a_inputDescription)
+	{
+		RenderArea area{ 0U, 0U, a_inputDescription.Width, a_inputDescription.Height };
+		D3D11_VIEWPORT viewport{};
+		UINT viewportCount = 1;
+		a_context->RSGetViewports(&viewportCount, &viewport);
+		if (viewportCount == 0 ||
+			!std::isfinite(viewport.TopLeftX) || !std::isfinite(viewport.TopLeftY) ||
+			!std::isfinite(viewport.Width) || !std::isfinite(viewport.Height) ||
+			viewport.Width < 1.0F || viewport.Height < 1.0F) {
+			return area;
+		}
+
+		const auto roundedLeft = static_cast<std::int64_t>(std::llround(viewport.TopLeftX));
+		const auto roundedTop = static_cast<std::int64_t>(std::llround(viewport.TopLeftY));
+		if (roundedLeft < 0 || roundedTop < 0 ||
+			roundedLeft >= a_inputDescription.Width || roundedTop >= a_inputDescription.Height) {
+			return area;
+		}
+
+		area.left = static_cast<std::uint32_t>(roundedLeft);
+		area.top = static_cast<std::uint32_t>(roundedTop);
+		area.width = std::clamp(
+			static_cast<std::uint32_t>(std::llround(viewport.Width)),
+			1U,
+			a_inputDescription.Width - area.left);
+		area.height = std::clamp(
+			static_cast<std::uint32_t>(std::llround(viewport.Height)),
+			1U,
+			a_inputDescription.Height - area.top);
+		return area;
+	}
 
 	std::array<float, 4> GetCameraData()
 	{
@@ -78,6 +123,28 @@ namespace
 		return std::nullopt;
 	}
 
+	std::optional<D3D11_TEXTURE2D_DESC> GetTextureDescription(ID3D11View* a_view)
+	{
+		if (!a_view) {
+			return std::nullopt;
+		}
+
+		ComPtr<ID3D11Resource> resource;
+		a_view->GetResource(resource.GetAddressOf());
+		if (!resource) {
+			return std::nullopt;
+		}
+
+		ComPtr<ID3D11Texture2D> texture;
+		if (FAILED(resource.As(&texture)) || !texture) {
+			return std::nullopt;
+		}
+
+		D3D11_TEXTURE2D_DESC description{};
+		texture->GetDesc(&description);
+		return description;
+	}
+
 	bool IsCompatibleDepth(
 		ID3D11ShaderResourceView* a_depth,
 		const D3D11_TEXTURE2D_DESC& a_colorDescription)
@@ -86,22 +153,13 @@ namespace
 			return false;
 		}
 
-		ComPtr<ID3D11Resource> resource;
-		a_depth->GetResource(resource.GetAddressOf());
-		if (!resource) {
+		const auto depthDescription = GetTextureDescription(a_depth);
+		if (!depthDescription) {
 			return false;
 		}
-
-		ComPtr<ID3D11Texture2D> texture;
-		if (FAILED(resource.As(&texture)) || !texture) {
-			return false;
-		}
-
-		D3D11_TEXTURE2D_DESC depthDescription{};
-		texture->GetDesc(&depthDescription);
-		return depthDescription.Width == a_colorDescription.Width &&
-		       depthDescription.Height == a_colorDescription.Height &&
-		       depthDescription.SampleDesc.Count == 1;
+		return depthDescription->Width == a_colorDescription.Width &&
+		       depthDescription->Height == a_colorDescription.Height &&
+		       depthDescription->SampleDesc.Count == 1;
 	}
 
 	struct OutputMergerRestore
@@ -161,6 +219,12 @@ void CDoF::DoFRenderer::SetSettings(Settings a_settings)
 {
 	std::scoped_lock lock(mutex_);
 	settings_ = a_settings;
+}
+
+void CDoF::DoFRenderer::SetModeSettings(ModeSettings a_settings)
+{
+	std::scoped_lock lock(mutex_);
+	modeSettings_ = a_settings;
 }
 
 void CDoF::DoFRenderer::SetTargetFocus(
@@ -241,6 +305,7 @@ bool CDoF::DoFRenderer::CompileShaders(ID3D11Device* a_device)
 		std::pair{ std::addressof(shaders_.cocGaussian1), "CS_CoCGaussian1" },
 		std::pair{ std::addressof(shaders_.cocGaussian2), "CS_CoCGaussian2" },
 		std::pair{ std::addressof(shaders_.blur), "CS_Blur" },
+		std::pair{ std::addressof(shaders_.reduceColor), "CS_ReduceColor" },
 		std::pair{ std::addressof(shaders_.farBlur), "CS_FarBlur" },
 		std::pair{ std::addressof(shaders_.nearBlur), "CS_NearBlur" },
 		std::pair{ std::addressof(shaders_.tentFilter), "CS_TentFilter" },
@@ -255,23 +320,27 @@ bool CDoF::DoFRenderer::CompileShaders(ID3D11Device* a_device)
 			return false;
 		}
 	}
-	spdlog::info("Compiled all 14 depth-of-field compute passes");
+	spdlog::info("Compiled all 15 depth-of-field compute passes (far density mip test 2)");
 	return true;
 }
 
-bool CDoF::DoFRenderer::EnsureResources(ID3D11Device* a_device, const D3D11_TEXTURE2D_DESC& a_inputDescription)
+bool CDoF::DoFRenderer::EnsureResources(
+	ID3D11Device* a_device,
+	const D3D11_TEXTURE2D_DESC& a_inputDescription,
+	std::uint32_t a_renderWidth,
+	std::uint32_t a_renderHeight)
 {
 	if (resources_.device == a_device &&
-		resources_.width == a_inputDescription.Width &&
-		resources_.height == a_inputDescription.Height &&
+		resources_.width == a_renderWidth &&
+		resources_.height == a_renderHeight &&
 		resources_.colorFormat == a_inputDescription.Format) {
 		return true;
 	}
 
 	resources_ = {};
 	resources_.device = a_device;
-	resources_.width = a_inputDescription.Width;
-	resources_.height = a_inputDescription.Height;
+	resources_.width = a_renderWidth;
+	resources_.height = a_renderHeight;
 	resources_.colorFormat = a_inputDescription.Format;
 
 	if (shadersReady_ && shaderDevice_ != a_device) {
@@ -286,10 +355,16 @@ bool CDoF::DoFRenderer::EnsureResources(ID3D11Device* a_device, const D3D11_TEXT
 		shaderDevice_ = a_device;
 	}
 
-	const auto width = a_inputDescription.Width;
-	const auto height = a_inputDescription.Height;
+	const auto width = a_renderWidth;
+	const auto height = a_renderHeight;
 	const auto halfWidth = std::max(1U, width / 2U);
 	const auto halfHeight = std::max(1U, height / 2U);
+	const auto quarterWidth = std::max(1U, (halfWidth + 1U) / 2U);
+	const auto quarterHeight = std::max(1U, (halfHeight + 1U) / 2U);
+	const auto eighthWidth = std::max(1U, (quarterWidth + 1U) / 2U);
+	const auto eighthHeight = std::max(1U, (quarterHeight + 1U) / 2U);
+	const auto sixteenthWidth = std::max(1U, (eighthWidth + 1U) / 2U);
+	const auto sixteenthHeight = std::max(1U, (eighthHeight + 1U) / 2U);
 	const auto color = a_inputDescription.Format;
 
 	const auto createColor = [&](Texture& a_texture, bool a_half) {
@@ -301,6 +376,9 @@ bool CDoF::DoFRenderer::EnsureResources(ID3D11Device* a_device, const D3D11_TEXT
 
 	if (!createColor(resources_.output, false) ||
 		!createColor(resources_.preBlurred, true) ||
+		!CreateTexture(a_device, resources_.farGatherColor1, color, quarterWidth, quarterHeight) ||
+		!CreateTexture(a_device, resources_.farGatherColor2, color, eighthWidth, eighthHeight) ||
+		!CreateTexture(a_device, resources_.farGatherColor3, color, sixteenthWidth, sixteenthHeight) ||
 		!createColor(resources_.farBlurred, true) ||
 		!createColor(resources_.nearBlurred, true) ||
 		!createColor(resources_.blurredFiltered, true) ||
@@ -329,7 +407,13 @@ bool CDoF::DoFRenderer::EnsureResources(ID3D11Device* a_device, const D3D11_TEXT
 		return false;
 	}
 
-	spdlog::info("Created depth-of-field resources: {}x{}, format {}", width, height, static_cast<std::uint32_t>(color));
+	spdlog::info(
+		"Created depth-of-field resources: {}x{}, format {} (input allocation {}x{})",
+		width,
+		height,
+		static_cast<std::uint32_t>(color),
+		a_inputDescription.Width,
+		a_inputDescription.Height);
 	return true;
 }
 
@@ -585,6 +669,13 @@ void CDoF::DoFRenderer::Apply()
 			targetFocusMode = TargetFocusMode::kDialogue;
 		}
 	}
+	if (targetFocusMode == TargetFocusMode::kNone && !modeSettings_.normalGameplayEnabled) {
+		if (targetFocusMode_ != TargetFocusMode::kNone) {
+			targetFocusMode_ = TargetFocusMode::kNone;
+			spdlog::info("Dialogue target focus ended; normal gameplay DoF is disabled");
+		}
+		return;
+	}
 	if (targetFocusMode == TargetFocusMode::kNone && targetFocusSettings_.consoleEnabled) {
 		const auto playerSource = targetFocusSettings_.targetSource == TargetFocusSource::kPlayer;
 		const auto focus = playerSource ? GetPlayerTargetFocus() : GetConsoleTargetFocus();
@@ -654,6 +745,7 @@ void CDoF::DoFRenderer::Apply()
 
 		D3D11_TEXTURE2D_DESC inputDescription{};
 		mainTarget.texture->GetDesc(&inputDescription);
+		const auto renderArea = GetActiveRenderArea(context, inputDescription);
 		if (!depthPathChecked_) {
 			const auto saoEnabled = ReadDisplayBool("bSAOEnable:Display");
 			const auto reflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
@@ -691,12 +783,52 @@ void CDoF::DoFRenderer::Apply()
 			}
 		}
 
-		if (inputDescription.SampleDesc.Count != 1 || !EnsureResources(device, inputDescription)) {
+		if (targetFocusMode == TargetFocusMode::kDialogue && !loggedRenderAreaDiagnostics_) {
+			loggedRenderAreaDiagnostics_ = true;
+			constexpr UINT kMaximumViewports = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+			std::array<D3D11_VIEWPORT, kMaximumViewports> viewports{};
+			UINT viewportCount = kMaximumViewports;
+			context->RSGetViewports(&viewportCount, viewports.data());
+
+			std::array<D3D11_RECT, kMaximumViewports> scissorRects{};
+			UINT scissorCount = kMaximumViewports;
+			context->RSGetScissorRects(&scissorCount, scissorRects.data());
+
+			const auto omDescription = GetTextureDescription(currentRTV.Get());
+			const auto depthDescription = GetTextureDescription(depth);
+			const auto viewport = viewportCount > 0 ? viewports[0] : D3D11_VIEWPORT{};
+			const auto scissor = scissorCount > 0 ? scissorRects[0] : D3D11_RECT{};
+			spdlog::info(
+				"Conversation render diagnostics: main={}x{} fmt={}; OM={}x{} fmt={}; depth={}x{} fmt={}; viewportCount={} first=({:.1f},{:.1f}) {:.1f}x{:.1f} depth={:.3f}..{:.3f}; scissorCount={} first=({},{})->({},{})",
+				inputDescription.Width,
+				inputDescription.Height,
+				static_cast<std::uint32_t>(inputDescription.Format),
+				omDescription ? omDescription->Width : 0U,
+				omDescription ? omDescription->Height : 0U,
+				omDescription ? static_cast<std::uint32_t>(omDescription->Format) : 0U,
+				depthDescription ? depthDescription->Width : 0U,
+				depthDescription ? depthDescription->Height : 0U,
+				depthDescription ? static_cast<std::uint32_t>(depthDescription->Format) : 0U,
+				viewportCount,
+				viewport.TopLeftX,
+				viewport.TopLeftY,
+				viewport.Width,
+				viewport.Height,
+				viewport.MinDepth,
+				viewport.MaxDepth,
+				scissorCount,
+				scissor.left,
+				scissor.top,
+				scissor.right,
+				scissor.bottom);
+		}
+
+		if (inputDescription.SampleDesc.Count != 1 ||
+			!EnsureResources(device, inputDescription, renderArea.width, renderArea.height)) {
 			permanentlyDisabled_ = true;
 			spdlog::critical("Depth of field disabled because GPU resources could not be created");
 			return;
 		}
-
 		ID3D11RenderTargetView* restoreRTV = currentRTV.Get();
 		OutputMergerRestore restore{ context, restoreRTV, currentDSV.Get() };
 		context->OMSetRenderTargets(0, nullptr, nullptr);
@@ -711,8 +843,33 @@ void CDoF::DoFRenderer::Apply()
 				lowSpecTargetGuard->headGuardCenter[0], lowSpecTargetGuard->headGuardCenter[1],
 				lowSpecTargetGuard->headGuardValid ? lowSpecTargetGuard->headGuardRadius : 0.0F);
 		}
-		Dispatch(context, mainTarget.SRV, depth, effectiveSettings, lowSpecTargetGuard);
-		context->CopyResource(mainTarget.texture, resources_.output.resource.Get());
+		Dispatch(
+			context,
+			mainTarget.SRV,
+			depth,
+			effectiveSettings,
+			lowSpecTargetGuard,
+			inputDescription.Width,
+			inputDescription.Height,
+			renderArea.left,
+			renderArea.top);
+		const D3D11_BOX outputBox{
+			0U,
+			0U,
+			0U,
+			renderArea.width,
+			renderArea.height,
+			1U
+		};
+		context->CopySubresourceRegion(
+			mainTarget.texture,
+			0,
+			renderArea.left,
+			renderArea.top,
+			0,
+			resources_.output.resource.Get(),
+			0,
+			&outputBox);
 		if (!loggedFirstFrame_) {
 			loggedFirstFrame_ = true;
 			spdlog::info("First depth-of-field frame applied successfully");
@@ -731,7 +888,11 @@ void CDoF::DoFRenderer::Dispatch(
 	ID3D11ShaderResourceView* a_color,
 	ID3D11ShaderResourceView* a_depth,
 	const Settings& a_settings,
-	const TargetFocusSample* a_lowSpecTargetGuard)
+	const TargetFocusSample* a_lowSpecTargetGuard,
+	std::uint32_t a_inputWidth,
+	std::uint32_t a_inputHeight,
+	std::uint32_t a_renderLeft,
+	std::uint32_t a_renderTop)
 {
 	const DoFConstants dofData{
 		.transitionSpeed = resources_.focusInitialized ? a_settings.transitionSpeed : 1.0F,
@@ -746,20 +907,21 @@ void CDoF::DoFRenderer::Dispatch(
 		.bokehBusyFactor = a_settings.bokehBusyFactor,
 		.highlightBoost = a_settings.highlightBoost,
 		.postBlurSmoothing = a_settings.postBlurSmoothing,
-		.highlightShape = 0,
-		.highlightShapeRotationAngle = 0.0F,
+		.highlightShape = a_settings.apertureBokeh ? 1U : 0U,
+		.highlightShapeRotationAngle = a_settings.apertureRotationDegrees / 360.0F,
 		.petzvalStrength = a_settings.petzvalStrength,
 		.autoFocus = a_settings.autoFocus ? 1U : 0U,
 		.autoFocusOffsetPlane = a_settings.autoFocusOffsetMeters / 1000.0F,
 		.targetGuardEnabled = a_lowSpecTargetGuard ? 1U : 0U,
-		.padding = 0U,
+		.apertureShapeStrength = a_settings.apertureShapeStrength,
 		.targetGuardCenter = a_lowSpecTargetGuard ?
 			Float2{ a_lowSpecTargetGuard->guardCenter[0], a_lowSpecTargetGuard->guardCenter[1] } : Float2{ 0.5F, 0.5F },
 		.targetGuardRadius = a_lowSpecTargetGuard ?
 			Float2{ a_lowSpecTargetGuard->guardRadius[0], a_lowSpecTargetGuard->guardRadius[1] } : Float2{ 1.0F, 1.0F },
 		.nearFocusRangeMeters = a_settings.nearFocusRangeMeters,
 		.farFocusRangeMeters = a_settings.farFocusRangeMeters,
-		.padding2 = {},
+		.apertureBlades = std::clamp(a_settings.apertureBlades, 3U, 12U),
+		.apertureRoundness = std::clamp(a_settings.apertureRoundness, 0.0F, 1.0F),
 		.headGuardCenter = a_lowSpecTargetGuard && a_lowSpecTargetGuard->headGuardValid ?
 			Float2{ a_lowSpecTargetGuard->headGuardCenter[0], a_lowSpecTargetGuard->headGuardCenter[1] } : Float2{ 0.5F, 0.5F },
 		.headGuardRadius = a_lowSpecTargetGuard && a_lowSpecTargetGuard->headGuardValid ?
@@ -775,7 +937,12 @@ void CDoF::DoFRenderer::Dispatch(
 			static_cast<float>(resources_.width),
 			static_cast<float>(resources_.height),
 			1.0F / static_cast<float>(resources_.width),
-			1.0F / static_cast<float>(resources_.height) }
+			1.0F / static_cast<float>(resources_.height) },
+		.inputRegion = {
+			static_cast<float>(a_renderLeft),
+			static_cast<float>(a_renderTop),
+			1.0F / static_cast<float>(a_inputWidth),
+			1.0F / static_cast<float>(a_inputHeight) }
 	};
 
 	if (!UpdateConstantBuffer(a_context, resources_.dofConstants.Get(), &dofData, sizeof(dofData)) ||
@@ -790,7 +957,7 @@ void CDoF::DoFRenderer::Dispatch(
 	a_context->CSSetConstantBuffers(5, 1, &sharedCB);
 	a_context->CSSetSamplers(0, 1, &sampler);
 
-	std::array<ID3D11ShaderResourceView*, 9> srvs{};
+	std::array<ID3D11ShaderResourceView*, 11> srvs{};
 	std::array<ID3D11UnorderedAccessView*, 3> uavs{};
 	const auto resetViews = [&]() {
 		srvs.fill(nullptr);
@@ -807,8 +974,22 @@ void CDoF::DoFRenderer::Dispatch(
 
 	const UINT fullWidth = (resources_.width + 7U) >> 3U;
 	const UINT fullHeight = (resources_.height + 7U) >> 3U;
-	const UINT halfWidth = ((resources_.width / 2U) + 7U) >> 3U;
-	const UINT halfHeight = ((resources_.height / 2U) + 7U) >> 3U;
+	const UINT halfPixelsX = std::max(1U, resources_.width / 2U);
+	const UINT halfPixelsY = std::max(1U, resources_.height / 2U);
+	const UINT quarterPixelsX = std::max(1U, (halfPixelsX + 1U) / 2U);
+	const UINT quarterPixelsY = std::max(1U, (halfPixelsY + 1U) / 2U);
+	const UINT eighthPixelsX = std::max(1U, (quarterPixelsX + 1U) / 2U);
+	const UINT eighthPixelsY = std::max(1U, (quarterPixelsY + 1U) / 2U);
+	const UINT sixteenthPixelsX = std::max(1U, (eighthPixelsX + 1U) / 2U);
+	const UINT sixteenthPixelsY = std::max(1U, (eighthPixelsY + 1U) / 2U);
+	const UINT halfWidth = (halfPixelsX + 7U) >> 3U;
+	const UINT halfHeight = (halfPixelsY + 7U) >> 3U;
+	const UINT quarterWidth = (quarterPixelsX + 7U) >> 3U;
+	const UINT quarterHeight = (quarterPixelsY + 7U) >> 3U;
+	const UINT eighthWidth = (eighthPixelsX + 7U) >> 3U;
+	const UINT eighthHeight = (eighthPixelsY + 7U) >> 3U;
+	const UINT sixteenthWidth = (sixteenthPixelsX + 7U) >> 3U;
+	const UINT sixteenthHeight = (sixteenthPixelsY + 7U) >> 3U;
 
 	// Update focus.
 	srvs[0] = a_color;
@@ -852,14 +1033,33 @@ void CDoF::DoFRenderer::Dispatch(
 	bindAndDispatch(shaders_.cocGaussian2.Get(), halfWidth, halfHeight);
 	resetViews();
 
-	// Pre-, far-, and near-plane blur. Custom bokeh texture t8 is intentionally omitted in MVP.
+	// Pre-, far-, and near-plane blur. Aperture shaping is calculated directly
+	// from the saved blade count, roundness, strength, and rotation constants.
 	srvs[0] = a_color;
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[4] = resources_.cocBlur2.srv.Get();
 	uavs[0] = resources_.preBlurred.uav.Get();
 	bindAndDispatch(shaders_.blur.Get(), halfWidth, halfHeight);
 	resetViews();
+	// Build a compact color pyramid only for the far-plane gather. Large blur
+	// kernels select a coarser source so each fixed gather tap represents a
+	// wider, contiguous footprint instead of leaving visible gaps.
 	srvs[0] = resources_.preBlurred.srv.Get();
+	uavs[0] = resources_.farGatherColor1.uav.Get();
+	bindAndDispatch(shaders_.reduceColor.Get(), quarterWidth, quarterHeight);
+	resetViews();
+	srvs[0] = resources_.farGatherColor1.srv.Get();
+	uavs[0] = resources_.farGatherColor2.uav.Get();
+	bindAndDispatch(shaders_.reduceColor.Get(), eighthWidth, eighthHeight);
+	resetViews();
+	srvs[0] = resources_.farGatherColor2.srv.Get();
+	uavs[0] = resources_.farGatherColor3.uav.Get();
+	bindAndDispatch(shaders_.reduceColor.Get(), sixteenthWidth, sixteenthHeight);
+	resetViews();
+	srvs[0] = resources_.preBlurred.srv.Get();
+	srvs[8] = resources_.farGatherColor1.srv.Get();
+	srvs[9] = resources_.farGatherColor2.srv.Get();
+	srvs[10] = resources_.farGatherColor3.srv.Get();
 	// Far gather performs a generic one-sided depth discontinuity test so that
 	// nearer surface colour is not spread farther into background pixels.
 	srvs[2] = a_depth;
