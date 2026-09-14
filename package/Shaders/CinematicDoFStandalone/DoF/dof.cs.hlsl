@@ -428,12 +428,8 @@ float2 ApplyFarApertureShape(float2 pointOffset, float angle)
 	return pointOffset * lerp(1.0f, apertureRadius, shapeStrength);
 }
 
-// Test 4 keeps the physically neutral shaped gather from Test 2, but preserves
-// the brightest eligible shaped sample instead of diluting it into the complete
-// gather average. HighlightBoost blends toward that peak without exceeding the
-// sampled source highlight, so small lights can form a readable aperture shape
-// without adding an unrestricted bloom term. Disabling aperture bokeh leaves
-// the public 0.8.31 path unchanged.
+// Far samples keep a mild rim preference so small distant lights retain a
+// readable aperture outline after the soft-highlight averaging stage.
 float CalculateApertureHighlightWeight(float3 color, float normalizedRadius, float defocusAmount)
 {
 	if (HighlightShape == 0 || HighlightBoost <= 0.0f)
@@ -446,18 +442,27 @@ float CalculateApertureHighlightWeight(float3 color, float normalizedRadius, flo
 	return brightMask * rimWeight * defocusWeight * saturate(ApertureShapeStrength);
 }
 
-float3 BlendApertureHighlight(float3 blurredColor, float3 highlightPeak)
+// Near-camera objects are extended sources rather than distant point lights.
+// Give their complete aperture footprint equal highlight eligibility instead of
+// preferring the outer rings, which otherwise makes bright foreground details
+// look hollow after a strong blur.
+float CalculateNearApertureHighlightWeight(float3 color, float defocusAmount)
 {
-	float highlightBlend = saturate(HighlightBoost * 3.0f);
-	return lerp(blurredColor, max(blurredColor, highlightPeak), highlightBlend);
+	if (HighlightShape == 0 || HighlightBoost <= 0.0f)
+		return 0.0f;
+
+	float luma = Color::RGBToLuminance(color);
+	float brightMask = smoothstep(0.25f, 0.85f, luma);
+	float defocusWeight = smoothstep(0.20f, 1.0f, saturate(defocusAmount));
+	return brightMask * defocusWeight * saturate(ApertureShapeStrength);
 }
 
-// Far highlights use a soft bright-sample mean instead of the previous
-// per-channel maximum. A uniform bright area therefore remains unchanged, while
-// isolated lights still gain a controlled polygonal footprint. The square-root
-// coverage response keeps small lights visible without turning one tap into a
-// full-strength morphological dilation.
-float3 BlendFarApertureHighlight(
+// Highlights use a soft bright-sample mean instead of a per-channel maximum. A
+// uniform bright area therefore remains unchanged, while isolated lights still
+// gain a controlled polygonal footprint. The square-root coverage response
+// keeps small lights visible without turning one tap into a full-strength
+// morphological dilation.
+float3 BlendSoftApertureHighlight(
 	float3 blurredColor,
 	float3 highlightSum,
 	float highlightWeight,
@@ -917,7 +922,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	}
 	float inverseWeight = rcp(average.w + (average.w == 0));
 	color.rgb = average.rgb * inverseWeight;
-	color.rgb = BlendFarApertureHighlight(color.rgb, apertureHighlightSum, apertureHighlightWeightSum, average.w);
+	color.rgb = BlendSoftApertureHighlight(color.rgb, apertureHighlightSum, apertureHighlightWeightSum, average.w);
 	RWTexOut[DTid] = color;
 }
 
@@ -954,7 +959,12 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	// luma is stored in alpha
 	float bokehBusyFactorToUse = saturate(1.0 - BokehBusyFactor);  // use the busy factor as an edge bias on the blur, not the highlights
 	float4 average = float4(color.rgb * colorRadiusToUse * bokehBusyFactorToUse, bokehBusyFactorToUse);
-	float3 apertureHighlightPeak = 0.0f;
+	// Include the centre sample in the highlight estimate. The previous near path
+	// only inspected the concentric rings, so a small highlight at the centre of
+	// its own blur could be weaker than the outline surrounding it.
+	float centerApertureHighlightWeight = CalculateNearApertureHighlightWeight(color.rgb, colorRadiusToUse);
+	float3 apertureHighlightSum = color.rgb * centerApertureHighlightWeight;
+	float apertureHighlightWeightSum = centerApertureHighlightWeight;
 	float2 pointOffset = float2(0, 0);
 	float nearPlaneBlurInPixels = blurInfo.nearPlaneMaxBlurInPixels * colorRadiusToUse;
 	float2 ringRadiusDeltaCoords = float2(SharedData::BufferDim.z, SharedData::BufferDim.w) * (nearPlaneBlurInPixels / (numberOfRings - 1));
@@ -965,7 +975,6 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 		float angle = anglePerPoint;
 		// no further weight needed, bleed all you want.
 		float weight = lerp(ringIndex / numberOfRings, 1, smoothstep(0, 1, bokehBusyFactorToUse));
-		float normalizedRingRadius = (ringIndex + 1.0f) / numberOfRings;
 		for (float pointNumber = 0; pointNumber < pointsOnRing; pointNumber++) {
 			sincos(angle, pointOffset.y, pointOffset.x);
 			pointOffset = ApplyApertureShape(pointOffset, angle);
@@ -974,8 +983,10 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			float2 fullResolutionTap = ClampFullResolutionUV(tapCoords);
 			float2 halfResolutionTap = ClampHalfResolutionUV(tapCoords);
 			float4 tap = TexColor.SampleLevel(LinearSampler, halfResolutionTap, 0);
-			float apertureHighlightWeight = CalculateApertureHighlightWeight(tap.rgb, normalizedRingRadius, colorRadiusToUse);
-			apertureHighlightPeak = max(apertureHighlightPeak, tap.rgb * apertureHighlightWeight);
+			float apertureHighlightWeight = CalculateNearApertureHighlightWeight(tap.rgb, colorRadiusToUse);
+			float weightedHighlight = apertureHighlightWeight * weight;
+			apertureHighlightSum += tap.rgb * weightedHighlight;
+			apertureHighlightWeightSum += weightedHighlight;
 			// r contains blurred CoC, g contains original CoC. Original can be negative
 			float2 sampleRadii = float2(
 				TexCoCBlurredInput.SampleLevel(LinearSampler, halfResolutionTap, 0),
@@ -990,7 +1001,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	}
 	float inverseWeight = rcp(average.w + (average.w == 0));
 	average.rgb *= inverseWeight;
-	average.rgb = BlendApertureHighlight(average.rgb, apertureHighlightPeak);
+	average.rgb = BlendSoftApertureHighlight(average.rgb, apertureHighlightSum, apertureHighlightWeightSum, average.w);
 	float alpha = saturate((min(2.5, NearPlaneMaxBlur) + 0.4) * (colorRadiusToUse > 0.1 ? (colorRadii.g <= 0 ? 2 : 1) * colorRadiusToUse : max(colorRadiusToUse, -colorRadii.g)));
 	color.rgb = average.rgb;
 	color.a = alpha;
