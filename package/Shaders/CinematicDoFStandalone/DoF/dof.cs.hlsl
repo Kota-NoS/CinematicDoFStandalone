@@ -965,6 +965,11 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	float centerApertureHighlightWeight = CalculateNearApertureHighlightWeight(color.rgb, colorRadiusToUse);
 	float3 apertureHighlightSum = color.rgb * centerApertureHighlightWeight;
 	float apertureHighlightWeightSum = centerApertureHighlightWeight;
+	// Keep a second mean from the aperture perimeter. It reintroduces a small
+	// amount of polygon definition without returning to the brightest-tap rim
+	// enhancement that made foreground highlights look hollow.
+	float3 apertureHighlightRimSum = 0.0f;
+	float apertureHighlightRimWeightSum = 0.0f;
 	float2 pointOffset = float2(0, 0);
 	float nearPlaneBlurInPixels = blurInfo.nearPlaneMaxBlurInPixels * colorRadiusToUse;
 	float2 ringRadiusDeltaCoords = float2(SharedData::BufferDim.z, SharedData::BufferDim.w) * (nearPlaneBlurInPixels / (numberOfRings - 1));
@@ -975,6 +980,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 		float angle = anglePerPoint;
 		// no further weight needed, bleed all you want.
 		float weight = lerp(ringIndex / numberOfRings, 1, smoothstep(0, 1, bokehBusyFactorToUse));
+		float normalizedRingRadius = (ringIndex + 1.0f) / numberOfRings;
+		float apertureRimFactor = smoothstep(0.50f, 0.85f, normalizedRingRadius);
 		for (float pointNumber = 0; pointNumber < pointsOnRing; pointNumber++) {
 			sincos(angle, pointOffset.y, pointOffset.x);
 			pointOffset = ApplyApertureShape(pointOffset, angle);
@@ -987,6 +994,9 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			float weightedHighlight = apertureHighlightWeight * weight;
 			apertureHighlightSum += tap.rgb * weightedHighlight;
 			apertureHighlightWeightSum += weightedHighlight;
+			float weightedRimHighlight = weightedHighlight * apertureRimFactor;
+			apertureHighlightRimSum += tap.rgb * weightedRimHighlight;
+			apertureHighlightRimWeightSum += weightedRimHighlight;
 			// r contains blurred CoC, g contains original CoC. Original can be negative
 			float2 sampleRadii = float2(
 				TexCoCBlurredInput.SampleLevel(LinearSampler, halfResolutionTap, 0),
@@ -1001,6 +1011,13 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	}
 	float inverseWeight = rcp(average.w + (average.w == 0));
 	average.rgb *= inverseWeight;
+	if (apertureHighlightWeightSum > 0.0f && apertureHighlightRimWeightSum > 0.0f) {
+		float3 fullHighlightMean = apertureHighlightSum / apertureHighlightWeightSum;
+		float3 rimHighlightMean = apertureHighlightRimSum / apertureHighlightRimWeightSum;
+		// Experiment 11 balance: retain the filled centre from Experiment 10 and
+		// restore only a restrained amount of perimeter definition.
+		apertureHighlightSum = lerp(fullHighlightMean, rimHighlightMean, 0.25f) * apertureHighlightWeightSum;
+	}
 	average.rgb = BlendSoftApertureHighlight(average.rgb, apertureHighlightSum, apertureHighlightWeightSum, average.w);
 	float alpha = saturate((min(2.5, NearPlaneMaxBlur) + 0.4) * (colorRadiusToUse > 0.1 ? (colorRadii.g <= 0 ? 2 : 1) * colorRadiusToUse : max(colorRadiusToUse, -colorRadii.g)));
 	color.rgb = average.rgb;

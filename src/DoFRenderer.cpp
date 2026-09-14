@@ -320,7 +320,7 @@ bool CDoF::DoFRenderer::CompileShaders(ID3D11Device* a_device)
 			return false;
 		}
 	}
-	spdlog::info("Compiled all 15 depth-of-field compute passes (experimental near soft-fill kernel v10)");
+	spdlog::info("Compiled all 15 depth-of-field compute passes (experimental near balanced-highlight kernel v11)");
 	return true;
 }
 
