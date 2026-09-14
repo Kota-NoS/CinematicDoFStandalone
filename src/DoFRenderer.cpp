@@ -320,7 +320,7 @@ bool CDoF::DoFRenderer::CompileShaders(ID3D11Device* a_device)
 			return false;
 		}
 	}
-	spdlog::info("Compiled all 15 depth-of-field compute passes (far density mip test 2)");
+	spdlog::info("Compiled all 15 depth-of-field compute passes (experimental direct far aperture kernel v8)");
 	return true;
 }
 

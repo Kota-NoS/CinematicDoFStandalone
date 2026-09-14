@@ -401,6 +401,33 @@ float2 ApplyApertureShape(float2 pointOffset, float angle)
 	return pointOffset * lerp(1.0f, apertureRadius, saturate(ApertureShapeStrength));
 }
 
+// The near gather already produces a useful aperture silhouette with the
+// inscribed polygon above. The far gather needs a stronger but energy-neutral
+// response: normalize the regular polygon to the area of the original disc, so
+// its sides contract while its vertices expand. This changes the actual blur
+// footprint instead of adding or subtracting a post-blur highlight layer.
+float GetEqualAreaFarApertureRadius(float angle)
+{
+	float blades = max((float)ApertureBlades, 3.0f);
+	float polygonArea = 0.5f * blades * sin(Math::TAU / blades);
+	float equalAreaScale = sqrt(Math::PI / max(polygonArea, 1e-4f));
+
+	// A fully area-normalized triangle reaches 1.55x at its vertices. Limit only
+	// the most extreme case to avoid excessive screen-edge sampling.
+	equalAreaScale = min(equalAreaScale, 1.45f);
+	return GetApertureRadius(angle) * equalAreaScale;
+}
+
+float2 ApplyFarApertureShape(float2 pointOffset, float angle)
+{
+	if (HighlightShape == 0)
+		return pointOffset;
+
+	float apertureRadius = GetEqualAreaFarApertureRadius(angle);
+	float shapeStrength = sqrt(saturate(ApertureShapeStrength));
+	return pointOffset * lerp(1.0f, apertureRadius, shapeStrength);
+}
+
 // Test 4 keeps the physically neutral shaped gather from Test 2, but preserves
 // the brightest eligible shaped sample instead of diluting it into the complete
 // gather average. HighlightBoost blends toward that peak without exceeding the
@@ -842,7 +869,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 		ringDistance += cocPerRing;
 		for (float pointNumber = 0; pointNumber < pointsOnRing; pointNumber++) {
 			sincos(angle, pointOffset.y, pointOffset.x);
-			pointOffset = ApplyApertureShape(pointOffset, angle);
+			pointOffset = ApplyFarApertureShape(pointOffset, angle);
 			pointOffset = ApplyPetzvalMorph(pointOffset, blurInfo.texcoord);
 			float2 tapCoords = float2(blurInfo.texcoord + (pointOffset * currentRingRadiusCoords));
 			float2 fullResolutionTap = ClampFullResolutionUV(tapCoords);
