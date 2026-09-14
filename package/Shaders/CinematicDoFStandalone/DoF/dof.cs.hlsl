@@ -452,6 +452,26 @@ float3 BlendApertureHighlight(float3 blurredColor, float3 highlightPeak)
 	return lerp(blurredColor, max(blurredColor, highlightPeak), highlightBlend);
 }
 
+// Far highlights use a soft bright-sample mean instead of the previous
+// per-channel maximum. A uniform bright area therefore remains unchanged, while
+// isolated lights still gain a controlled polygonal footprint. The square-root
+// coverage response keeps small lights visible without turning one tap into a
+// full-strength morphological dilation.
+float3 BlendFarApertureHighlight(
+	float3 blurredColor,
+	float3 highlightSum,
+	float highlightWeight,
+	float gatherWeight)
+{
+	if (HighlightShape == 0 || HighlightBoost <= 0.0f || highlightWeight <= 0.0f)
+		return blurredColor;
+
+	float3 highlightMean = highlightSum / highlightWeight;
+	float coverage = sqrt(saturate((highlightWeight * 8.0f) / max(gatherWeight, 1e-4f)));
+	float highlightBlend = saturate(HighlightBoost) * coverage;
+	return lerp(blurredColor, max(blurredColor, highlightMean), highlightBlend);
+}
+
 float CalculateBlurDiscSize(FocusInfo focusInfo)
 {
 	float pixelDepth = GetDepth(focusInfo.texcoord);
@@ -853,7 +873,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	}
 	float bokehBusyFactorToUse = saturate(1.0 - BokehBusyFactor);  // use the busy factor as an edge bias on the blur, not the highlights
 	float4 average = float4(color.rgb * colorRadius * bokehBusyFactorToUse, bokehBusyFactorToUse);
-	float3 apertureHighlightPeak = 0.0f;
+	float3 apertureHighlightSum = 0.0f;
+	float apertureHighlightWeightSum = 0.0f;
 	float2 pointOffset = float2(0, 0);
 	float2 ringRadiusDeltaCoords = (SharedData::BufferDim.zw * blurInfo.farPlaneMaxBlurInPixels * colorRadius) / blurInfo.numberOfRings;
 	float2 currentRingRadiusCoords = ringRadiusDeltaCoords;
@@ -883,7 +904,9 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			if (weight > 0) {
 				tap = SampleFarGatherColor(halfResolutionTap, gatherMip);
 				float apertureHighlightWeight = CalculateApertureHighlightWeight(tap.rgb, normalizedRingRadius, colorRadius);
-				apertureHighlightPeak = max(apertureHighlightPeak, tap.rgb * apertureHighlightWeight);
+				float weightedHighlight = apertureHighlightWeight * weight;
+				apertureHighlightSum += tap.rgb * weightedHighlight;
+				apertureHighlightWeightSum += weightedHighlight;
 			}
 			average.rgb += tap.rgb * weight;
 			average.w += weight;
@@ -894,7 +917,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	}
 	float inverseWeight = rcp(average.w + (average.w == 0));
 	color.rgb = average.rgb * inverseWeight;
-	color.rgb = BlendApertureHighlight(color.rgb, apertureHighlightPeak);
+	color.rgb = BlendFarApertureHighlight(color.rgb, apertureHighlightSum, apertureHighlightWeightSum, average.w);
 	RWTexOut[DTid] = color;
 }
 
