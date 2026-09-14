@@ -1014,9 +1014,9 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (apertureHighlightWeightSum > 0.0f && apertureHighlightRimWeightSum > 0.0f) {
 		float3 fullHighlightMean = apertureHighlightSum / apertureHighlightWeightSum;
 		float3 rimHighlightMean = apertureHighlightRimSum / apertureHighlightRimWeightSum;
-		// Experiment 11 balance: retain the filled centre from Experiment 10 and
-		// restore only a restrained amount of perimeter definition.
-		apertureHighlightSum = lerp(fullHighlightMean, rimHighlightMean, 0.25f) * apertureHighlightWeightSum;
+		// Experiment 12 balance: retain most of the filled centre from Experiment
+		// 10 while giving the aperture perimeter enough weight to read clearly.
+		apertureHighlightSum = lerp(fullHighlightMean, rimHighlightMean, 0.40f) * apertureHighlightWeightSum;
 	}
 	average.rgb = BlendSoftApertureHighlight(average.rgb, apertureHighlightSum, apertureHighlightWeightSum, average.w);
 	float alpha = saturate((min(2.5, NearPlaneMaxBlur) + 0.4) * (colorRadiusToUse > 0.1 ? (colorRadii.g <= 0 ? 2 : 1) * colorRadiusToUse : max(colorRadiusToUse, -colorRadii.g)));
