@@ -20,7 +20,9 @@ The bundled CommonLibSSE-NG 6.1.0 snapshot receives the minimum upstream compati
 
 Candidate 1 contained the first two changes. A real 1.7.104 launch reached the plugin but stopped with `Unsupported address library format: 5`, proving that the bundled CommonLib reader itself also needed the format 5 backport. Candidate 2 adds that reader without upgrading the renderer-facing CommonLib interfaces.
 
-No files under `src`, `package/Shaders`, or `package/SKSE` were changed. DoF rendering, aperture shape, presets, INI defaults, and UI behavior remain identical to the completed 0.8.32 baseline.
+Candidate 3 keeps the standard depth path on Skyrim 1.7.104 when Community Shaders is absent, but also enables the existing low-settings target near-blur protection when a low-spec display setting is detected. This is an exact `1.7.104.0` runtime gate. Skyrim 1.6.1170 and every other runtime retain the completed 0.8.32 activation conditions.
+
+No shader, preset, INI-default, or UI code was changed. Candidate 3 only expands the activation condition for the already-completed target-protection shader data on the affected 1.7.104 standalone path.
 
 ## Build verification completed
 
@@ -66,6 +68,8 @@ Required tester environment:
 
 Run the same checks as the 1.6.1170 regression test. In particular, confirm that enabling DoF, opening the UI, changing focus modes, and using the hotkey do not crash.
 
+With Community Shaders absent and at least one low-spec depth-related display setting disabled, verify player target tracking again. The log should contain `Skyrim 1.7.104 standalone target near-blur protection activated`, and the player should remain protected from foreground blur while the surrounding depth of field remains unchanged.
+
 If the game crashes or DoF does not render, collect:
 
 - `CinematicDoFStandalone.log`
@@ -77,7 +81,7 @@ If the game crashes or DoF does not render, collect:
 
 The plugin uses Address Library IDs, but two hooks call an instruction inside a relocated function and therefore also use a local call-site offset. Camera near/far clip values are also read at known offsets from a relocated global. These locations cannot be certified for 1.7.104 by compilation alone. They must be validated in the actual runtime before declaring official support.
 
-Candidate 2 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted.
+Candidate 3 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted.
 
 Official references:
 
