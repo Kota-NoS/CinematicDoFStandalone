@@ -22,7 +22,7 @@ The DLL is written to `work/artifacts/0.8.32/CinematicDoFStandalone.dll`.
 - CommonLibSSE-NG 6.1.0 source snapshot: https://github.com/alandtse/CommonLibSSE-NG
   - The snapshot's `COPYING`, `EXCEPTIONS.md`, and historical `LICENSE` files are retained.
   - This project enables Skyrim SE and AE, disables VR, and uses Address Library compatibility.
-  - The `compat/runtime-1.7.104-candidate` branch carries a minimal upstream compatibility backport: Skyrim minor versions 6 and newer are classified as AE, and both supported SKSE plugin-declaration forms emit the Address Library v5 flag. This does not change renderer, shader, preset, or INI code.
+  - The `compat/runtime-1.7.104-candidate` branch carries a minimal upstream compatibility backport: Skyrim minor versions 6 and newer are classified as AE, both supported SKSE plugin-declaration forms emit the Address Library v5 flag, and the relocation loader reads the format 5 dense ID table while preserving the older format 1/2 path. This does not change renderer, shader, preset, or INI code.
 
 ## Resolved xmake dependencies
 

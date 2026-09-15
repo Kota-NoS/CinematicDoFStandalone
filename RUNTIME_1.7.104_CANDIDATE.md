@@ -16,6 +16,9 @@ The bundled CommonLibSSE-NG 6.1.0 snapshot receives the minimum upstream compati
 
 - Skyrim 1.7.x is classified as AE and therefore selects AE relocation IDs and the AE Address Library filename.
 - The exported SKSE plugin declaration sets the Address Library v5 flag required by SKSE for Address Library v5 runtimes.
+- The relocation database loader recognizes Address Library format 5 and reads its dense ID-to-offset table while retaining the existing format 1/2 loader for older runtimes.
+
+Candidate 1 contained the first two changes. A real 1.7.104 launch reached the plugin but stopped with `Unsupported address library format: 5`, proving that the bundled CommonLib reader itself also needed the format 5 backport. Candidate 2 adds that reader without upgrading the renderer-facing CommonLib interfaces.
 
 No files under `src`, `package/Shaders`, or `package/SKSE` were changed. DoF rendering, aperture shape, presets, INI defaults, and UI behavior remain identical to the completed 0.8.32 baseline.
 
@@ -27,8 +30,13 @@ No files under `src`, `package/Shaders`, or `package/SKSE` were changed. DoF ren
   - Address Library v5 flag: set
   - no-struct-use flag: set
 - Address Library declaration: set
+- Real 1.7.104 Address Library database inspected:
+  - Format: `5`
+  - Runtime: `1.7.104.0`
+  - Dense entry count and file length: consistent
+  - All three relocation IDs used directly by this plugin are present: `107148`, `68617`, and `403540`
 
-Build success proves that the compatibility declaration is present; it does not prove that the game-side hook sites are unchanged on 1.7.104.
+Build and database checks prove that the compatibility declaration is present and that the required IDs can be resolved. They do not prove that the game-side instructions at the two hook sites or the camera data layout are unchanged on 1.7.104.
 
 ## テスト順序 / Test order
 
@@ -68,6 +76,8 @@ If the game crashes or DoF does not render, collect:
 ## Remaining runtime risk
 
 The plugin uses Address Library IDs, but two hooks call an instruction inside a relocated function and therefore also use a local call-site offset. Camera near/far clip values are also read at known offsets from a relocated global. These locations cannot be certified for 1.7.104 by compilation alone. They must be validated in the actual runtime before declaring official support.
+
+Candidate 2 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted.
 
 Official references:
 
