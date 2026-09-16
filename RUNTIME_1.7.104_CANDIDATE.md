@@ -37,6 +37,12 @@ Candidate 5 removes only the exact-`1.7.104.0` gate from the standalone target g
 - Disabled SAO alone still does not activate the standalone guard.
 - No shader, guard position/radius, preset, INI-default, UI, focus, or blur calculation was changed.
 
+Candidate 6 is a deliberately narrow visual test for the slight residual blur observed at the top of the tracked character's head when the standalone guard is active:
+
+- The head guard keeps the same centre and outer radius.
+- Its fully protected inner region increases from 82% to 88% of the existing radius, leaving the outer 12% as the feathered transition.
+- The body guard, activation conditions, Community Shaders depth fallback, presets, INI defaults, UI, focus, and blur calculations are unchanged.
+
 ## Build verification completed
 
 - `releasedbg` x64 build: passed
@@ -96,7 +102,7 @@ If the game crashes or DoF does not render, collect:
 
 The plugin uses Address Library IDs, but two hooks call an instruction inside a relocated function and therefore also use a local call-site offset. Camera near/far clip values are also read at known offsets from a relocated global. These locations cannot be certified for 1.7.104 by compilation alone. They must be validated in the actual runtime before declaring official support.
 
-Candidate 5 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted.
+Candidate 6 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted. Compare the top-of-head result against Candidate 5 and also check for a new halo or unnaturally sharp background immediately behind the head.
 
 Official references:
 

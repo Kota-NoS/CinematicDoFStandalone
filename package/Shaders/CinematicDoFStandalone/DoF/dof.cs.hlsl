@@ -292,7 +292,7 @@ float GetHeadTargetGuard(float2 uv)
 	// so it remains circular on 16:9, ultrawide, and other resolutions.
 	float aspect = SharedData::BufferDim.x / max(SharedData::BufferDim.y, 1.0f);
 	float2 headDelta = float2((uv.x - HeadGuardCenter.x) * aspect, uv.y - HeadGuardCenter.y);
-	return 1.0f - smoothstep(0.82f, 1.0f, length(headDelta) / HeadGuardRadius);
+	return 1.0f - smoothstep(0.88f, 1.0f, length(headDelta) / HeadGuardRadius);
 }
 
 float GetCloseUpHeadFarGuard(float2 uv)
