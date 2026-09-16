@@ -756,10 +756,13 @@ void CDoF::DoFRenderer::Apply()
 				(saoEnabled && !*saoEnabled) ||
 				(reflectionsEnabled && !*reflectionsEnabled) ||
 				(hdr64Enabled && !*hdr64Enabled);
+			const auto standaloneTargetGuardSettings =
+				(reflectionsEnabled && !*reflectionsEnabled) ||
+				(hdr64Enabled && !*hdr64Enabled);
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
 			useRuntime17104TargetGuard_ =
 				REL::Module::get().version() == REL::Version{ 1, 7, 104, 0 } &&
-				!communityShadersLoaded && lowSpecDepthSettings;
+				!communityShadersLoaded && standaloneTargetGuardSettings;
 			depthPathChecked_ = true;
 			spdlog::info(
 				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path",

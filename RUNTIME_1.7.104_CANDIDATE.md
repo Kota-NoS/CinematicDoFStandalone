@@ -24,6 +24,12 @@ Candidate 3 keeps the standard depth path on Skyrim 1.7.104 when Community Shade
 
 No shader, preset, INI-default, or UI code was changed. Candidate 3 only expands the activation condition for the already-completed target-protection shader data on the affected 1.7.104 standalone path.
 
+Candidate 4 separates the two low-settings decisions so the established Community Shaders depth fallback and the new standalone target guard no longer share one combined detector:
+
+- The Community Shaders depth fallback is unchanged and still considers disabled SAO, SSR, or 64-bit HDR.
+- The exact-1.7.104 standalone target guard ignores SAO and activates only when SSR or 64-bit HDR is explicitly disabled while Community Shaders is absent.
+- The head guard keeps the same centre and outer radius, but its fully protected inner region increases from 72% to 82% of that radius. The body guard, close-up far guard, presets, INI defaults, and UI are unchanged.
+
 ## Build verification completed
 
 - `releasedbg` x64 build: passed
@@ -68,7 +74,7 @@ Required tester environment:
 
 Run the same checks as the 1.6.1170 regression test. In particular, confirm that enabling DoF, opening the UI, changing focus modes, and using the hotkey do not crash.
 
-With Community Shaders absent and at least one low-spec depth-related display setting disabled, verify player target tracking again. The log should contain `Skyrim 1.7.104 standalone target near-blur protection activated`, and the player should remain protected from foreground blur while the surrounding depth of field remains unchanged.
+With Community Shaders absent and either SSR or 64-bit HDR disabled, verify player target tracking again. The log should contain `Skyrim 1.7.104 standalone target near-blur protection activated`, and the player should remain protected from foreground blur while the surrounding depth of field remains unchanged. Also verify that disabling SAO alone, with SSR and 64-bit HDR enabled, does not activate this standalone guard. The established Community Shaders depth fallback must still react to SAO, SSR, or 64-bit HDR exactly as before.
 
 If the game crashes or DoF does not render, collect:
 
@@ -81,7 +87,7 @@ If the game crashes or DoF does not render, collect:
 
 The plugin uses Address Library IDs, but two hooks call an instruction inside a relocated function and therefore also use a local call-site offset. Camera near/far clip values are also read at known offsets from a relocated global. These locations cannot be certified for 1.7.104 by compilation alone. They must be validated in the actual runtime before declaring official support.
 
-Candidate 3 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted.
+Candidate 4 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted.
 
 Official references:
 
