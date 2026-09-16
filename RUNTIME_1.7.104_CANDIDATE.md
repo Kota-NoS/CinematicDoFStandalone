@@ -43,6 +43,14 @@ Candidate 6 is a deliberately narrow visual test for the slight residual blur ob
 - Its fully protected inner region increases from 82% to 88% of the existing radius, leaving the outer 12% as the feathered transition.
 - The body guard, activation conditions, Community Shaders depth fallback, presets, INI defaults, UI, focus, and blur calculations are unchanged.
 
+Candidate 7 restores the Candidate 5 head-guard feather after the wider Candidate 6 inner region showed no meaningful improvement, and adds a narrowly scoped near-focus assist for the confirmed 64-bit HDR trigger:
+
+- The head guard's fully protected inner region returns from 88% to 82% of its unchanged radius.
+- The assist is enabled only when Community Shaders is absent and `bUse64bitsHDRRenderTarget=0` is read explicitly. Disabled SSR alone does not enable it, and an unknown or enabled 64-bit HDR setting leaves it off.
+- Even while enabled, the assist is applied only when target tracking supplies a valid protected target. Fixed Focus, Screen AF, and frames without a valid tracked target retain the saved value.
+- During those protected target-tracking frames, the effective near-focus range is `max(saved value, 0.15 m)`. The saved preset/INI/UI value is not changed.
+- Community Shaders behavior, the established low-spec depth fallback, far focus, maximum blur, bokeh, presets, INI defaults, and UI remain unchanged.
+
 ## Build verification completed
 
 - `releasedbg` x64 build: passed
@@ -102,7 +110,7 @@ If the game crashes or DoF does not render, collect:
 
 The plugin uses Address Library IDs, but two hooks call an instruction inside a relocated function and therefore also use a local call-site offset. Camera near/far clip values are also read at known offsets from a relocated global. These locations cannot be certified for 1.7.104 by compilation alone. They must be validated in the actual runtime before declaring official support.
 
-Candidate 6 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted. Compare the top-of-head result against Candidate 5 and also check for a new halo or unnaturally sharp background immediately behind the head.
+Candidate 7 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted. With Community Shaders absent, compare `bUse64bitsHDRRenderTarget=1` against `0` after a full game restart. At `0`, verify that a saved near-focus range below 0.15 m protects the tracked character while Fixed Focus, Screen AF, and frames without a valid tracked target retain their saved value. Also check foreground objects within approximately 0.15 m of the focus plane for any unwanted sharpening.
 
 Official references:
 
