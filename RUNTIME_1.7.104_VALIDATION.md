@@ -1,6 +1,6 @@
-# Skyrim 1.7.104 compatibility candidate
+# Skyrim 1.7.104 compatibility validation
 
-This branch is a compatibility-only candidate based on the completed 0.8.32 visual baseline. It is not yet a confirmed 1.7.104 release.
+This document records the seven compatibility candidates evaluated on top of the completed 0.8.32 visual baseline. Candidate 7 passed the required runtime and image-comparison tests and was promoted unchanged into CinematicDoFStandalone 1.0.0.
 
 ## 固定した基準 / Frozen baseline
 
@@ -8,7 +8,7 @@ This branch is a compatibility-only candidate based on the completed 0.8.32 visu
 - Tag: `v0.8.32-complete`
 - Commit: `50587a630813be0da0ecd40dfd7f3f970e1127d8`
 
-The candidate branch is `compat/runtime-1.7.104-candidate`.
+The candidates were developed on `compat/runtime-1.7.104-candidate`; the accepted result was promoted to `release/v1.0.0`.
 
 ## 変更内容 / Compatibility changes
 
@@ -106,11 +106,11 @@ If the game crashes or DoF does not render, collect:
 - a crash logger report, if available
 - the exact Skyrim, SKSE, and Address Library versions
 
-## Remaining runtime risk
+## Final promotion result
 
-The plugin uses Address Library IDs, but two hooks call an instruction inside a relocated function and therefore also use a local call-site offset. Camera near/far clip values are also read at known offsets from a relocated global. These locations cannot be certified for 1.7.104 by compilation alone. They must be validated in the actual runtime before declaring official support.
+The plugin uses Address Library IDs, while two hooks also use local call-site offsets and the camera near/far clip values use known offsets from a relocated global. These locations could not be certified by compilation alone, so the final candidate was exercised in the actual Skyrim 1.7.104 runtime.
 
-Candidate 7 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted. With Community Shaders absent, compare `bUse64bitsHDRRenderTarget=1` against `0` after a full game restart. At `0`, verify that a saved near-focus range below 0.15 m protects the tracked character while Fixed Focus, Screen AF, and frames without a valid tracked target retain their saved value. Also check foreground objects within approximately 0.15 m of the focus plane for any unwanted sharpening.
+Candidate 7 passed game launch, menu operation, live DoF rendering, focus-mode operation, player-protection behavior, and direct `bUse64bitsHDRRenderTarget=1` versus `0` comparisons after full restarts. The same final logic was also exercised on Skyrim 1.6.1170. Ordinary-distance comparisons showed no meaningful image change outside the intended protection, and the limited difference at extreme close range was accepted. Candidate 7 is therefore the validated implementation used by official version 1.0.0.
 
 Official references:
 

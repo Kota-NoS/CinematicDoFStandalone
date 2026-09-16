@@ -1,8 +1,8 @@
-# CinematicDoFStandalone 0.8.32 verification
+# CinematicDoFStandalone 1.0.0 verification
 
-Version 0.8.32 preserves the verified Test 4 aperture implementation, replaces only `AccentuateWhites` with the bounded HDR/PBR-safe implementation, and keeps the Open Shaders FSR active-render-area fix. Spiral sampling and the fixed five-tap prefilter are not included. See `package/Documentation/RELEASE_0.8.32_JA_EN.md` for the integrated release record and known limitation.
+Version 1.0.0 promotes the completed 0.8.32 rendering baseline to the first stable release, adds official Skyrim 1.7.104 and Address Library v5 compatibility, and integrates the display-setting-scoped target protection validated through Candidate 7. See `package/Documentation/RELEASE_1.0.0_JA_EN.md` and `RUNTIME_1.7.104_VALIDATION.md`.
 
-## Test scope
+## Rendering baseline retained from 0.8.32
 
 - Starts from the exact public 0.8.31 source and configuration.
 - Test 1 proved stability and persistence, but its mask-weight method did not produce a visible shape change in game.
@@ -12,17 +12,30 @@ Version 0.8.32 preserves the verified Test 4 aperture implementation, replaces o
 - A value of 0 preserves the natural Test 2 result.
 - Exposes aperture blade count, blade roundness, shape strength, and rotation in Advanced Settings.
 - Saves the five aperture settings independently in startup settings and every preset.
-- Keeps aperture-shaped bokeh disabled in startup settings and the eight existing presets so their default image remains unchanged; only the new Aperture Bokeh preset enables it.
+- Keeps aperture-shaped bokeh disabled in startup settings and the other bundled presets so their default image remains unchanged; only the Aperture Bokeh preset enables it.
 - Does not restore or expose the rejected visible-surface actor-silhouette experiments.
+
+## 1.0.0 compatibility and protection scope
+
+- Skyrim 1.7.x is classified as AE and uses the AE Address Library path.
+- The SKSE plugin declaration sets the Address Library v5 flag.
+- The relocation reader accepts the Address Library v5 dense table while retaining the v1/v2 path used by earlier runtimes.
+- With Community Shaders loaded, the established depth fallback still considers disabled SAO, SSR, or 64-bit HDR.
+- Without Community Shaders, the standard depth path remains in use. The tracked-subject guard activates only when SSR or 64-bit HDR is disabled; disabled SAO alone does not activate it.
+- The head guard retains its established centre and outer radius, with 82% of that radius fully protected.
+- Without Community Shaders, explicitly disabled 64-bit HDR and a valid tracked target set the effective near-focus range to `max(saved value, 0.15 m)`. The saved INI, preset, and UI value are unchanged.
+- Fixed Focus, Screen AF, invalid/no-target frames, and normal standalone configurations with SSR and 64-bit HDR enabled do not receive the 0.15 m assist.
 
 ## Static verification
 
 - Build `releasedbg` x64 successfully.
 - Compile all 15 HLSL entry points with `fxc /Ges /T cs_5_0`.
-- Confirm FileVersion and ProductVersion are `0.8.32.0`.
+- Confirm FileVersion and ProductVersion are `1.0.0.0`.
 - Confirm `SKSEPlugin_Load`, `SKSEPlugin_Query`, and `SKSEPlugin_Version` exports.
+- Confirm the Address Library and v5 version-independence declaration flags.
+- Confirm the three relocation IDs used directly by the plugin exist in the Skyrim 1.7.104 database.
 - Confirm all five aperture keys exist in startup settings and all nine INI preset sections.
-- Confirm the MO2 archive is Data-shaped (`SKSE`, `Shaders`, and `Documentation` at its root) and contains the matching DLL and PDB.
+- Confirm the MO2 archive is Data-shaped (`SKSE`, `Shaders`, and `Documentation` at its root) and contains the matching DLL. Keep build symbols outside the user-facing runtime archives.
 - Confirm the source archive contains the matching source tree and package while excluding generated build, object, cache, `work`, and `.xmake` directories.
 
 ## Completed in-game verification on Skyrim AE 1.6.1170
@@ -38,3 +51,19 @@ Version 0.8.32 preserves the verified Test 4 aperture implementation, replaces o
 - Dialogue-only DoF was checked from normal-gameplay OFF through conversation start/end, including immediate master-switch/hotkey shutdown and restoration of normal DoF.
 - English/Japanese selection was checked for immediate switching and persistence.
 - An older INI with customized `Preset.Custom1` and `Preset.Custom2` values was checked to retain those values in UI slots 8 and 9 while the independent Aperture Bokeh slot was added at 7.
+
+## Completed 1.0.0 protection verification on Skyrim AE 1.6.1170
+
+- With Community Shaders absent, changing only `bUse64bitsHDRRenderTarget` to `0` reproduced the tracked-character foreground-blur problem before protection and activated the final protection in 1.0.0.
+- Restoring `bUse64bitsHDRRenderTarget=1` with SSR enabled disabled both the standalone target guard and HDR near-focus assist, as confirmed by the runtime log.
+- The 0.15 m effective floor was compared against a saved 0.00 m value at ordinary and very close foreground distances. Ordinary framing was visually equivalent; the limited close-range difference was accepted in exchange for reliable subject protection.
+
+## Completed in-game verification on Skyrim AE 1.7.104
+
+- The plugin loaded with SKSE64 2.3.1 and the matching Address Library v5 database.
+- Menu operation, all focus modes, DoF rendering, and aperture-shaped bokeh operated without a runtime compatibility failure.
+- The final 82% guard plus HDR-scoped 0.15 m assist produced the intended sharp subject while retaining surrounding depth-of-field rendering.
+
+## Known limitation
+
+At low `Blur Quality`, very large blur discs can split into visible rings or points because the gather does not have enough sample density. Raise `Blur Quality` or reduce the near/far maximum blur when necessary.

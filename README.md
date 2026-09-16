@@ -1,6 +1,6 @@
-# CinematicDoFStandalone 0.8.32
+# CinematicDoFStandalone 1.0.0
 
-> **Version 0.8.32:** This release combines the in-game-validated Far Density Mip Test 2, bounded Highlight Boost handling for HDR/PBR highlights, the Open Shaders FSR active-render-area fix, nine-preset compatibility, and the independently tested dialogue-only mode and bilingual UI. Aperture bokeh remains an optional experimental effect and is disabled in startup settings.
+> **Version 1.0.0:** The first stable release completes aperture-shaped bokeh, officially supports Skyrim 1.7.104 and its Address Library v5 database, and adds narrowly scoped subject protection for Skyrim display configurations that otherwise blur a tracked character. Skyrim 1.6.1170 compatibility and the completed 0.8.32 rendering baseline are preserved.
 
 ## 日本語
 
@@ -18,16 +18,18 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 - 1人称視点で手前ぼかしを無効にするオプション
 - 未割り当てを初期値とするDoF ON/OFFキーボードホットキー
 - 通常プレイ、人物撮影、広角撮影、オブジェクト撮影向けの調整
-- 外部画像を使わず、手前／奥ぼかしのサンプル配置を直接変形し、強くぼけた明点を元の明るさの範囲内で形状として残す実験的絞り形状ボケ
+- 外部画像を使わず、手前／奥ぼかしのサンプル配置を直接変形し、強くぼけた明点を元の明るさの範囲内で形状として残す絞り形状ボケ
 
 ### 必要環境
 
-- Skyrim AE 1.6.1170（配布版の実ゲーム確認環境）
+- Skyrim AE 1.6.1170／1.7.104（配布版の実ゲーム確認環境）
 - SKSE64
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0（ゲーム内UIを使う場合のみ）
 
-ビルドはSkyrim SE／AEを対象にしていますが、配布版の実ゲーム確認はAE 1.6.1170で行っています。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
+ビルドはSkyrim SE／AEを対象とし、配布版はAE 1.6.1170と1.7.104で実ゲーム確認済みです。1.7.104ではAddress Library v5形式へ対応します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
+
+Community Shadersを使わない環境では、SSRまたは64-bit HDRが無効な場合に対象追従中の人物保護を有効にします。64-bit HDRが明示的に無効で、有効な追従対象がいるフレームに限り、保存値を変更せず手前ピント範囲の実効値を最低0.15 mにします。64-bit HDRとSSRが有効な通常環境では、これらの保護は無効です。Community Shaders使用時の既存深度フォールバック条件は変更していません。
 
 ### インストール
 
@@ -68,7 +70,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 4. 人物撮影：プレイヤーを中心に深いぼかし
 5. 広角撮影：プレイヤーを中心に浅いぼかし
 6. 1人称撮影：コンソールで選んだ対象をフォーカス
-7. 絞り形状（試験的）：控えめな5枚羽根の形状ボケを確認する人物撮影設定
+7. 絞り形状：控えめな5枚羽根の形状ボケを確認する人物撮影設定
 8. Custom 1：自由枠（初期は深い遠景ぼかし）
 9. Custom 2：自由枠（初期は深い手前ぼかし）
 
@@ -83,7 +85,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 ### 補足
 
 - 1人称で通常プレイする場合は、詳細設定の「一人称の手前ぼかし」をOFFにすると武器や手元が鮮明になります。
-- 実験的な「絞り形状ボケ」は初期状態でOFFです。ONにすると、強くピンぼけした明るい点が設定した絞り形状に近づきます。「明るいボケの強調」は、ぼかし平均で薄まる前の明点へ近づける量を調整します。元映像の明点を超える無制限な発光を追加する機能ではありません。
+- 「絞り形状ボケ」は初期状態でOFFです。ONにすると、強くピンぼけした明るい点が設定した絞り形状に近づきます。「明るいボケの強調」は、ぼかし平均で薄まる前の明点へ近づける量を調整します。元映像の明点を超える無制限な発光を追加する機能ではありません。
 - 非常に大きなボケを低い「ぼかし品質」で描画すると、サンプル密度不足によりボケが輪や点へ分裂して見える場合があります。これは既知の制限です。必要に応じて品質を上げるか、最大ぼかしを弱めてください。
 - 「周辺ボケの強さ」は、画面周辺の既存ボケを接線方向へ引き延ばし、渦巻くレンズボケを再現します。
 - 奥行きの大きい非人物オブジェクトでは、対象の基準位置が意図した表面と離れる場合があります。「ピント位置補正」または「手前／奥ピント範囲」で構図に合わせて調整してください。
@@ -105,16 +107,18 @@ CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a
 - Option to disable near blur in first person
 - An optional, unassigned-by-default keyboard hotkey for toggling DoF
 - Presets designed for gameplay, portraits, wide shots, first-person shots, and object photography
-- Experimental aperture-shaped bokeh that deforms near/far blur samples and can selectively emphasize bright shaped bokeh, with adjustable blade count, roundness, strength, and rotation; no external mask image is required
+- Aperture-shaped bokeh that deforms near/far blur samples and can selectively emphasize bright shaped bokeh, with adjustable blade count, roundness, strength, and rotation; no external mask image is required
 
 ### Requirements
 
-- Skyrim AE 1.6.1170 (the runtime used for in-game release testing)
+- Skyrim AE 1.6.1170 or 1.7.104 (the runtimes used for in-game release testing)
 - SKSE64
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0 only if you want the in-game UI
 
-The build targets Skyrim SE and AE, but the distributed build was tested in game on AE 1.6.1170. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
+The build targets Skyrim SE and AE, and the distributed build was tested in game on AE 1.6.1170 and 1.7.104. Version 1.7.104 uses the Address Library v5 database format supported by this release. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
+
+Without Community Shaders, target-tracking subject protection activates when SSR or 64-bit HDR is disabled. When 64-bit HDR is explicitly disabled and a valid tracked target exists, the effective near-focus range is floored at 0.15 m without changing the saved value. Both protections are disabled in a normal standalone configuration with 64-bit HDR and SSR enabled. The established Community Shaders depth-fallback conditions are unchanged.
 
 ### Installation
 
@@ -146,7 +150,7 @@ The key assignment is saved to the INI and is not part of a preset. Toggling DoF
 
 ### Presets and INI saving
 
-The nine bundled slots are Gameplay, Cinematic, View Focus, Photo Portrait, Photo Wide, First-Person Photo, Aperture Bokeh (Experimental), Custom 1, and Custom 2.
+The nine bundled slots are Gameplay, Cinematic, View Focus, Photo Portrait, Photo Wide, First-Person Photo, Aperture Bokeh, Custom 1, and Custom 2.
 
 When updating from an older version, Custom 1 and Custom 2 keep their original named INI sections and stable internal IDs. The new seventh slot uses the independent `Preset.ApertureBokeh` section, so existing Custom 1/2 values are neither moved nor overwritten.
 
@@ -159,7 +163,7 @@ When updating from an older version, Custom 1 and Custom 2 keep their original n
 ### Notes
 
 - For normal first-person play, disable `First-Person Near Blur` in Advanced Settings to keep weapons and hands sharp.
-- The `Aperture Bokeh (Experimental)` option is off by default. When enabled, strongly defocused bright points take on the selected aperture shape. `Highlight Boost` controls how far the blurred result moves toward the brightest eligible shaped sample. It does not add unrestricted brightness beyond the sampled source highlight.
+- `Aperture Bokeh` is off by default. When enabled, strongly defocused bright points take on the selected aperture shape. `Highlight Boost` controls how far the blurred result moves toward the brightest eligible shaped sample. It does not add unrestricted brightness beyond the sampled source highlight.
 - Very large blur discs rendered at low `Blur Quality` can separate into visible rings or points because the gather has insufficient sample density. This is a known limitation. Raise quality or reduce maximum blur if needed.
 - `Petzval Strength` stretches existing peripheral blur tangentially to create a swirling lens effect.
 - A deep non-actor object can have a reference/anchor position away from the surface you intended to photograph. Compensate with Target Focus Offset or the near/far in-focus range controls.
