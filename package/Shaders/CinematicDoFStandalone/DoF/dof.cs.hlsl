@@ -292,7 +292,7 @@ float GetHeadTargetGuard(float2 uv)
 	// so it remains circular on 16:9, ultrawide, and other resolutions.
 	float aspect = SharedData::BufferDim.x / max(SharedData::BufferDim.y, 1.0f);
 	float2 headDelta = float2((uv.x - HeadGuardCenter.x) * aspect, uv.y - HeadGuardCenter.y);
-	return 1.0f - smoothstep(0.72f, 1.0f, length(headDelta) / HeadGuardRadius);
+	return 1.0f - smoothstep(0.82f, 1.0f, length(headDelta) / HeadGuardRadius);
 }
 
 float GetCloseUpHeadFarGuard(float2 uv)
@@ -401,12 +401,35 @@ float2 ApplyApertureShape(float2 pointOffset, float angle)
 	return pointOffset * lerp(1.0f, apertureRadius, saturate(ApertureShapeStrength));
 }
 
-// Test 4 keeps the physically neutral shaped gather from Test 2, but preserves
-// the brightest eligible shaped sample instead of diluting it into the complete
-// gather average. HighlightBoost blends toward that peak without exceeding the
-// sampled source highlight, so small lights can form a readable aperture shape
-// without adding an unrestricted bloom term. Disabling aperture bokeh leaves
-// the public 0.8.31 path unchanged.
+// The near gather already produces a useful aperture silhouette with the
+// inscribed polygon above. The far gather needs a stronger but energy-neutral
+// response: normalize the regular polygon to the area of the original disc, so
+// its sides contract while its vertices expand. This changes the actual blur
+// footprint instead of adding or subtracting a post-blur highlight layer.
+float GetEqualAreaFarApertureRadius(float angle)
+{
+	float blades = max((float)ApertureBlades, 3.0f);
+	float polygonArea = 0.5f * blades * sin(Math::TAU / blades);
+	float equalAreaScale = sqrt(Math::PI / max(polygonArea, 1e-4f));
+
+	// A fully area-normalized triangle reaches 1.55x at its vertices. Limit only
+	// the most extreme case to avoid excessive screen-edge sampling.
+	equalAreaScale = min(equalAreaScale, 1.45f);
+	return GetApertureRadius(angle) * equalAreaScale;
+}
+
+float2 ApplyFarApertureShape(float2 pointOffset, float angle)
+{
+	if (HighlightShape == 0)
+		return pointOffset;
+
+	float apertureRadius = GetEqualAreaFarApertureRadius(angle);
+	float shapeStrength = sqrt(saturate(ApertureShapeStrength));
+	return pointOffset * lerp(1.0f, apertureRadius, shapeStrength);
+}
+
+// Far samples keep a mild rim preference so small distant lights retain a
+// readable aperture outline after the soft-highlight averaging stage.
 float CalculateApertureHighlightWeight(float3 color, float normalizedRadius, float defocusAmount)
 {
 	if (HighlightShape == 0 || HighlightBoost <= 0.0f)
@@ -419,10 +442,39 @@ float CalculateApertureHighlightWeight(float3 color, float normalizedRadius, flo
 	return brightMask * rimWeight * defocusWeight * saturate(ApertureShapeStrength);
 }
 
-float3 BlendApertureHighlight(float3 blurredColor, float3 highlightPeak)
+// Near-camera objects are extended sources rather than distant point lights.
+// Give their complete aperture footprint equal highlight eligibility instead of
+// preferring the outer rings, which otherwise makes bright foreground details
+// look hollow after a strong blur.
+float CalculateNearApertureHighlightWeight(float3 color, float defocusAmount)
 {
-	float highlightBlend = saturate(HighlightBoost * 3.0f);
-	return lerp(blurredColor, max(blurredColor, highlightPeak), highlightBlend);
+	if (HighlightShape == 0 || HighlightBoost <= 0.0f)
+		return 0.0f;
+
+	float luma = Color::RGBToLuminance(color);
+	float brightMask = smoothstep(0.25f, 0.85f, luma);
+	float defocusWeight = smoothstep(0.20f, 1.0f, saturate(defocusAmount));
+	return brightMask * defocusWeight * saturate(ApertureShapeStrength);
+}
+
+// Highlights use a soft bright-sample mean instead of a per-channel maximum. A
+// uniform bright area therefore remains unchanged, while isolated lights still
+// gain a controlled polygonal footprint. The square-root coverage response
+// keeps small lights visible without turning one tap into a full-strength
+// morphological dilation.
+float3 BlendSoftApertureHighlight(
+	float3 blurredColor,
+	float3 highlightSum,
+	float highlightWeight,
+	float gatherWeight)
+{
+	if (HighlightShape == 0 || HighlightBoost <= 0.0f || highlightWeight <= 0.0f)
+		return blurredColor;
+
+	float3 highlightMean = highlightSum / highlightWeight;
+	float coverage = sqrt(saturate((highlightWeight * 8.0f) / max(gatherWeight, 1e-4f)));
+	float highlightBlend = saturate(HighlightBoost) * coverage;
+	return lerp(blurredColor, max(blurredColor, highlightMean), highlightBlend);
 }
 
 float CalculateBlurDiscSize(FocusInfo focusInfo)
@@ -826,7 +878,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	}
 	float bokehBusyFactorToUse = saturate(1.0 - BokehBusyFactor);  // use the busy factor as an edge bias on the blur, not the highlights
 	float4 average = float4(color.rgb * colorRadius * bokehBusyFactorToUse, bokehBusyFactorToUse);
-	float3 apertureHighlightPeak = 0.0f;
+	float3 apertureHighlightSum = 0.0f;
+	float apertureHighlightWeightSum = 0.0f;
 	float2 pointOffset = float2(0, 0);
 	float2 ringRadiusDeltaCoords = (SharedData::BufferDim.zw * blurInfo.farPlaneMaxBlurInPixels * colorRadius) / blurInfo.numberOfRings;
 	float2 currentRingRadiusCoords = ringRadiusDeltaCoords;
@@ -842,7 +895,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 		ringDistance += cocPerRing;
 		for (float pointNumber = 0; pointNumber < pointsOnRing; pointNumber++) {
 			sincos(angle, pointOffset.y, pointOffset.x);
-			pointOffset = ApplyApertureShape(pointOffset, angle);
+			pointOffset = ApplyFarApertureShape(pointOffset, angle);
 			pointOffset = ApplyPetzvalMorph(pointOffset, blurInfo.texcoord);
 			float2 tapCoords = float2(blurInfo.texcoord + (pointOffset * currentRingRadiusCoords));
 			float2 fullResolutionTap = ClampFullResolutionUV(tapCoords);
@@ -856,7 +909,9 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			if (weight > 0) {
 				tap = SampleFarGatherColor(halfResolutionTap, gatherMip);
 				float apertureHighlightWeight = CalculateApertureHighlightWeight(tap.rgb, normalizedRingRadius, colorRadius);
-				apertureHighlightPeak = max(apertureHighlightPeak, tap.rgb * apertureHighlightWeight);
+				float weightedHighlight = apertureHighlightWeight * weight;
+				apertureHighlightSum += tap.rgb * weightedHighlight;
+				apertureHighlightWeightSum += weightedHighlight;
 			}
 			average.rgb += tap.rgb * weight;
 			average.w += weight;
@@ -867,7 +922,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	}
 	float inverseWeight = rcp(average.w + (average.w == 0));
 	color.rgb = average.rgb * inverseWeight;
-	color.rgb = BlendApertureHighlight(color.rgb, apertureHighlightPeak);
+	color.rgb = BlendSoftApertureHighlight(color.rgb, apertureHighlightSum, apertureHighlightWeightSum, average.w);
 	RWTexOut[DTid] = color;
 }
 
@@ -904,7 +959,17 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	// luma is stored in alpha
 	float bokehBusyFactorToUse = saturate(1.0 - BokehBusyFactor);  // use the busy factor as an edge bias on the blur, not the highlights
 	float4 average = float4(color.rgb * colorRadiusToUse * bokehBusyFactorToUse, bokehBusyFactorToUse);
-	float3 apertureHighlightPeak = 0.0f;
+	// Include the centre sample in the highlight estimate. The previous near path
+	// only inspected the concentric rings, so a small highlight at the centre of
+	// its own blur could be weaker than the outline surrounding it.
+	float centerApertureHighlightWeight = CalculateNearApertureHighlightWeight(color.rgb, colorRadiusToUse);
+	float3 apertureHighlightSum = color.rgb * centerApertureHighlightWeight;
+	float apertureHighlightWeightSum = centerApertureHighlightWeight;
+	// Keep a second mean from the aperture perimeter. It reintroduces a small
+	// amount of polygon definition without returning to the brightest-tap rim
+	// enhancement that made foreground highlights look hollow.
+	float3 apertureHighlightRimSum = 0.0f;
+	float apertureHighlightRimWeightSum = 0.0f;
 	float2 pointOffset = float2(0, 0);
 	float nearPlaneBlurInPixels = blurInfo.nearPlaneMaxBlurInPixels * colorRadiusToUse;
 	float2 ringRadiusDeltaCoords = float2(SharedData::BufferDim.z, SharedData::BufferDim.w) * (nearPlaneBlurInPixels / (numberOfRings - 1));
@@ -916,6 +981,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 		// no further weight needed, bleed all you want.
 		float weight = lerp(ringIndex / numberOfRings, 1, smoothstep(0, 1, bokehBusyFactorToUse));
 		float normalizedRingRadius = (ringIndex + 1.0f) / numberOfRings;
+		float apertureRimFactor = smoothstep(0.50f, 0.85f, normalizedRingRadius);
 		for (float pointNumber = 0; pointNumber < pointsOnRing; pointNumber++) {
 			sincos(angle, pointOffset.y, pointOffset.x);
 			pointOffset = ApplyApertureShape(pointOffset, angle);
@@ -924,8 +990,13 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			float2 fullResolutionTap = ClampFullResolutionUV(tapCoords);
 			float2 halfResolutionTap = ClampHalfResolutionUV(tapCoords);
 			float4 tap = TexColor.SampleLevel(LinearSampler, halfResolutionTap, 0);
-			float apertureHighlightWeight = CalculateApertureHighlightWeight(tap.rgb, normalizedRingRadius, colorRadiusToUse);
-			apertureHighlightPeak = max(apertureHighlightPeak, tap.rgb * apertureHighlightWeight);
+			float apertureHighlightWeight = CalculateNearApertureHighlightWeight(tap.rgb, colorRadiusToUse);
+			float weightedHighlight = apertureHighlightWeight * weight;
+			apertureHighlightSum += tap.rgb * weightedHighlight;
+			apertureHighlightWeightSum += weightedHighlight;
+			float weightedRimHighlight = weightedHighlight * apertureRimFactor;
+			apertureHighlightRimSum += tap.rgb * weightedRimHighlight;
+			apertureHighlightRimWeightSum += weightedRimHighlight;
 			// r contains blurred CoC, g contains original CoC. Original can be negative
 			float2 sampleRadii = float2(
 				TexCoCBlurredInput.SampleLevel(LinearSampler, halfResolutionTap, 0),
@@ -940,7 +1011,14 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	}
 	float inverseWeight = rcp(average.w + (average.w == 0));
 	average.rgb *= inverseWeight;
-	average.rgb = BlendApertureHighlight(average.rgb, apertureHighlightPeak);
+	if (apertureHighlightWeightSum > 0.0f && apertureHighlightRimWeightSum > 0.0f) {
+		float3 fullHighlightMean = apertureHighlightSum / apertureHighlightWeightSum;
+		float3 rimHighlightMean = apertureHighlightRimSum / apertureHighlightRimWeightSum;
+		// Experiment 15 balance: keep slightly more of the filled footprint while
+		// retaining a clear aperture-perimeter bias for foreground highlights.
+		apertureHighlightSum = lerp(fullHighlightMean, rimHighlightMean, 0.60f) * apertureHighlightWeightSum;
+	}
+	average.rgb = BlendSoftApertureHighlight(average.rgb, apertureHighlightSum, apertureHighlightWeightSum, average.w);
 	float alpha = saturate((min(2.5, NearPlaneMaxBlur) + 0.4) * (colorRadiusToUse > 0.1 ? (colorRadii.g <= 0 ? 2 : 1) * colorRadiusToUse : max(colorRadiusToUse, -colorRadii.g)));
 	color.rgb = average.rgb;
 	color.a = alpha;

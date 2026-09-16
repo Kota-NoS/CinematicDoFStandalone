@@ -9,7 +9,7 @@
 - Open Shaders FSR使用時は、出力テクスチャ全体ではなく実際の有効描画領域でDoFを処理します。Quality、PerformanceなどNative AA未満で右端・下端に出ていた境界と、ボケ量が内部解像度に応じて変化する問題を修正します。
 - 評価した螺旋サンプル版と中央＋上下左右の固定5タップ版は含めていません。通常の同心円ギャザーとTest 4の単一プリフィルタを維持しています。
 - 7番へ新しい「絞り形状」プリセットを追加し、従来のCustom 1／2は表示上の8／9番へ移しました。名前付きINIセクションと内部IDは変更していないため、旧版で保存したCustom 1／2は移動も上書きもされません。
-- 新しい7番「絞り形状（試験的）」は、70.3 mm、f/3.4、奥最大ぼかし1.74、手前最大ぼかし1.00、品質8、距離補正1.00、5枚羽根、丸み0.10、形状0.60、Highlight Boost 0.35、仕上げの滑らかさ0.20を控えめな初期値とします。旧INIに`Preset.ApertureBokeh`が無い場合は内蔵初期値から生成されます。
+- 新しい7番「絞り形状（試験的）」は、70.3 mm、f/3.4、奥最大ぼかし1.81、手前最大ぼかし1.00、品質8、距離補正1.00、5枚羽根、丸み0.10、形状0.65、Highlight Boost 0.45、仕上げの滑らかさ0.20を初期値とします。旧INIに`Preset.ApertureBokeh`が無い場合は内蔵初期値から生成されます。
 - 通常時のDoFを止めて会話中だけ使用できる独立設定と、選択状態を常時示す`[English]`／`[日本語]`ボタンを追加しました。これらはプリセットの適用・保存・初期化から独立しています。
 - 奥ボケのMip選択には、実機確認済みのFar Density Mip Test 2を採用しています。
 
@@ -35,7 +35,7 @@ Version 0.8.32 combines the following changes that were previously tested separa
 - With Open Shaders FSR, the complete DoF pipeline now processes the actual active render area instead of the full output allocation. This fixes the right/bottom boundary and resolution-dependent blur strength seen below Native AA, including Quality and Performance modes.
 - The evaluated spiral sampling and fixed centre/up/down/left/right five-tap prefilter are not included. The regular concentric-ring gather and Test 4 single-sample prefilter remain in use.
 - A new Aperture Bokeh preset is inserted at UI slot 7, while the existing Custom 1/2 presets move visually to slots 8/9. Their named INI sections and stable internal IDs are unchanged, so values saved by an older release are neither migrated nor overwritten.
-- The new experimental slot 7 defaults to a restrained 70.3 mm, f/3.4, 1.74 far maximum blur, 1.00 near maximum blur, quality 8, 1.00 distance compensation, five blades, 0.10 roundness, 0.60 shape strength, Highlight Boost 0.35, and 0.20 post-blur smoothing. If an older INI has no `Preset.ApertureBokeh` section, the built-in defaults supply it.
+- The new experimental slot 7 defaults to 70.3 mm, f/3.4, 1.81 far maximum blur, 1.00 near maximum blur, quality 8, 1.00 distance compensation, five blades, 0.10 roundness, 0.65 shape strength, Highlight Boost 0.45, and 0.20 post-blur smoothing. If an older INI has no `Preset.ApertureBokeh` section, the built-in defaults supply it.
 - A preset-independent mode can disable normal-gameplay DoF while retaining dialogue DoF. The compact `[English]` and `[日本語]` buttons always show the selected language. Preset apply/store/reset operations do not modify either setting.
 - Far-plane Mip selection uses the in-game-validated Far Density Mip Test 2 implementation.
 

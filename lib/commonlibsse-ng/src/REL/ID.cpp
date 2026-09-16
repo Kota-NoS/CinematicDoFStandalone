@@ -93,32 +93,102 @@ namespace REL
 
 	IDDatabase IDDatabase::_instance;
 
-	bool IDDatabase::load_file(stl::zwstring a_filename, Version a_version, std::uint8_t a_formatVersion, bool a_failOnError)
+	bool IDDatabase::load_file(stl::zwstring a_filename, Version a_version, std::optional<std::uint8_t> a_expectedFormat, bool a_failOnError)
 	{
 		try {
 			istream_t in(a_filename.data(), std::ios::in | std::ios::binary);
-			header_t  header;
-			header.read(in, a_formatVersion);
-			if (header.version() != a_version) {
-				return stl::report_and_error("version mismatch"sv, a_failOnError);
+			std::int32_t format{};
+			in.readin(format);
+
+			if (a_expectedFormat && format != static_cast<std::int32_t>(*a_expectedFormat)) {
+				stl::report_and_error(
+					std::format(
+						"Unsupported address library format: {}\n"
+						"This means this script extender plugin is incompatible with the address "
+						"library available for this version of the game, and thus does not "
+						"support it."sv,
+						format),
+					a_failOnError);
+				return false;
 			}
 
-			auto mapname = L"CommonLibSSEOffsets-v2-"s;
-			mapname += a_version.wstring();
-			const auto byteSize = static_cast<std::size_t>(header.address_count()) * sizeof(mapping_t);
-			if (_mmap.open(mapname, byteSize)) {
-				_id2offset = { static_cast<mapping_t*>(_mmap.data()), header.address_count() };
-			} else if (_mmap.create(mapname, byteSize)) {
-				_id2offset = { static_cast<mapping_t*>(_mmap.data()), header.address_count() };
-				unpack_file(in, header, a_failOnError);
-				std::sort(_id2offset.begin(), _id2offset.end(), [](auto&& a_lhs, auto&& a_rhs) {
-					return a_lhs.id < a_rhs.id;
-				});
-			} else {
-				return stl::report_and_error("failed to create shared mapping"sv, a_failOnError);
+			switch (format) {
+			case 1:
+			case 2:
+				{
+					header_t header;
+					header.read(in);
+					if (header.version() != a_version) {
+						stl::report_and_error("version mismatch"sv, a_failOnError);
+						return false;
+					}
+
+					auto mapname = L"CommonLibSSEOffsets-v2-"s;
+					mapname += a_version.wstring();
+					const auto byteSize = static_cast<std::size_t>(header.address_count()) * sizeof(mapping_t);
+					if (_mmap.open(mapname, byteSize)) {
+						_id2offset = { static_cast<mapping_t*>(_mmap.data()), header.address_count() };
+					} else if (_mmap.create(mapname, byteSize)) {
+						_id2offset = { static_cast<mapping_t*>(_mmap.data()), header.address_count() };
+						if (!unpack_file(in, header, a_failOnError)) {
+							_id2offset = {};
+							_mmap.close();
+							return false;
+						}
+						std::sort(_id2offset.begin(), _id2offset.end(), [](auto&& a_lhs, auto&& a_rhs) {
+							return a_lhs.id < a_rhs.id;
+						});
+					} else {
+						stl::report_and_error("failed to create shared mapping"sv, a_failOnError);
+						return false;
+					}
+
+					_loadedFormat = format == 1 ? Format::SSEv1 : Format::SSEv2;
+					return true;
+				}
+			case 5:
+				{
+					header_v5_t header;
+					header.read(in);
+					if (header.version() != a_version) {
+						stl::report_and_error("version mismatch"sv, a_failOnError);
+						return false;
+					}
+
+					const auto count = header.offset_count();
+					constexpr std::uint64_t headerBytes = 96;
+					std::error_code ec;
+					const auto fileBytes = std::filesystem::file_size(a_filename.data(), ec);
+					const auto neededBytes = count > 0 ?
+						headerBytes + static_cast<std::uint64_t>(count) * sizeof(std::uint32_t) :
+						0;
+					if (ec || count <= 0 || fileBytes < neededBytes) {
+						stl::report_and_error(
+							std::format(
+								"Address library file is truncated or its offset count is invalid: {}"sv,
+								stl::utf16_to_utf8(a_filename).value_or("<unknown filename>"s)),
+							a_failOnError);
+						return false;
+					}
+
+					_id2offsetDense.resize(static_cast<std::size_t>(count));
+					in.read_bytes(_id2offsetDense.data(), _id2offsetDense.size() * sizeof(std::uint32_t));
+					_loadedFormat = Format::SSEv5;
+					return true;
+				}
+			default:
+				stl::report_and_error(
+					std::format(
+						"Unsupported address library format: {}\n"
+						"This means this script extender plugin is incompatible with the address "
+						"library available for this version of the game, and thus does not "
+						"support it."sv,
+						format),
+					a_failOnError);
+				return false;
 			}
 		} catch (const std::system_error&) {
-			return stl::report_and_error(
+			stl::report_and_error(
 				std::format(
 					"Failed to locate an appropriate address library with the path: {}\n"
 					"This means you are missing the address library for this specific version of "
@@ -129,8 +199,6 @@ namespace REL
 				a_failOnError);
 			return false;
 		}
-
-		return true;
 	}
 
 #ifdef ENABLE_SKYRIM_VR
@@ -183,6 +251,7 @@ namespace REL
 			return stl::report_and_error("failed to create shared mapping"sv, a_failOnError);
 		}
 
+		_loadedFormat = Format::VR;
 		return true;
 	}
 

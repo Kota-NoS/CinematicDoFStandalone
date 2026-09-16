@@ -388,19 +388,19 @@ namespace
 		preset.manualFocusMeters = 46.09F;
 		preset.focalLength = 70.3F;
 		preset.fNumber = 3.4F;
-		preset.farPlaneMaxBlur = 1.74F;
+		preset.farPlaneMaxBlur = 1.81F;
 		preset.nearPlaneMaxBlur = 1.0F;
 		preset.enableFirstPersonNearBlur = false;
 		preset.blurQuality = 8.0F;
 		preset.nearFarDistanceCompensation = 1.0F;
 		preset.bokehBusyFactor = 0.0F;
-		preset.highlightBoost = 0.35F;
+		preset.highlightBoost = 0.45F;
 		preset.postBlurSmoothing = 0.2F;
 		preset.petzvalStrength = 0.0F;
 		preset.apertureBokeh = true;
 		preset.apertureBlades = 5;
 		preset.apertureRoundness = 0.1F;
-		preset.apertureShapeStrength = 0.6F;
+		preset.apertureShapeStrength = 0.65F;
 		preset.apertureRotationDegrees = 0.0F;
 		preset.nearFocusRangeMeters = 0.0F;
 		preset.farFocusRangeMeters = 2.1F;
@@ -437,7 +437,7 @@ namespace
 			TargetDefaults(true, 3, 1.6F, true), {} },
 		PresetSlot{ 7, "First-Person Photo", "一人称撮影", L"Preset.FirstPersonPhoto", nullptr,
 			FirstPersonPhotoPreset(), {}, TargetDefaults(true, 7, 0.49F, true, TargetFocusSource::kConsole), {} },
-		PresetSlot{ 8, "Aperture Bokeh", "絞り形状（試験的）", L"Preset.ApertureBokeh", nullptr,
+		PresetSlot{ 8, "Aperture Bokeh", "絞り形状", L"Preset.ApertureBokeh", nullptr,
 			ApertureBokehPreset(), {}, TargetDefaults(true, 7, 1.31F, true), {} },
 		PresetSlot{ 4, "Custom 1", "カスタム1", L"Preset.Custom1", L"Preset.Video", Custom1Preset(), {},
 			TargetDefaults(true, 7, 1.21F, true), {} },
@@ -978,7 +978,7 @@ namespace
 					"Adjusts how busy or dense out-of-focus highlights appear.",
 					"ピンぼけ部分の光がどれくらい密集して見えるかを調整します。");
 				changed |= CheckboxWithHelp(
-					"Aperture Bokeh (Experimental)", "絞り形状ボケ（試験的）", &uiSettings.apertureBokeh,
+					"Aperture Bokeh", "絞り形状ボケ", &uiSettings.apertureBokeh,
 					"Shapes the blur kernel with a procedurally generated lens aperture. The shape is easiest to see on bright points that are strongly out of focus. No external image is used.",
 					"数値から生成したレンズ絞りの形をボケへ反映します。大きくピンぼけした明るい点ほど形が見えやすくなります。外部画像は使用しません。");
 				if (uiSettings.apertureBokeh) {
@@ -1056,7 +1056,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 0.8.32");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.0");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}

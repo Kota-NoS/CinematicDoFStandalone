@@ -320,7 +320,7 @@ bool CDoF::DoFRenderer::CompileShaders(ID3D11Device* a_device)
 			return false;
 		}
 	}
-	spdlog::info("Compiled all 15 depth-of-field compute passes (far density mip test 2)");
+	spdlog::info("Compiled all 15 depth-of-field compute passes (near balanced-perimeter kernel v15)");
 	return true;
 }
 
@@ -756,15 +756,24 @@ void CDoF::DoFRenderer::Apply()
 				(saoEnabled && !*saoEnabled) ||
 				(reflectionsEnabled && !*reflectionsEnabled) ||
 				(hdr64Enabled && !*hdr64Enabled);
+			const auto standaloneTargetGuardSettings =
+				(reflectionsEnabled && !*reflectionsEnabled) ||
+				(hdr64Enabled && !*hdr64Enabled);
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
+			useStandaloneTargetGuard_ =
+				!communityShadersLoaded && standaloneTargetGuardSettings;
+			useStandaloneNearFocusAssist_ =
+				!communityShadersLoaded && hdr64Enabled && !*hdr64Enabled;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path",
+				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path; standalone target guard={}; HDR near-focus assist={}",
 				saoEnabled ? (*saoEnabled ? "on" : "off") : "unknown",
 				reflectionsEnabled ? (*reflectionsEnabled ? "on" : "off") : "unknown",
 				hdr64Enabled ? (*hdr64Enabled ? "on" : "off") : "unknown",
 				communityShadersLoaded ? "loaded" : "not loaded",
-				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard");
+				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard",
+				useStandaloneTargetGuard_ ? "enabled" : "disabled",
+				useStandaloneNearFocusAssist_ ? "enabled" : "disabled");
 			if (lowSpecDepthSettings && !communityShadersLoaded) {
 				spdlog::warn(
 					"Low-spec depth settings were detected, but Community Shaders was not loaded; preserving the standard depth path");
@@ -832,12 +841,14 @@ void CDoF::DoFRenderer::Apply()
 		ID3D11RenderTargetView* restoreRTV = currentRTV.Get();
 		OutputMergerRestore restore{ context, restoreRTV, currentDSV.Get() };
 		context->OMSetRenderTargets(0, nullptr, nullptr);
-		const auto* lowSpecTargetGuard = useLowSpecDepthFallback_ && activeTargetFocus && activeTargetFocus->guardValid ?
+		const auto targetGuardEnabled = useLowSpecDepthFallback_ || useStandaloneTargetGuard_;
+		const auto* lowSpecTargetGuard = targetGuardEnabled && activeTargetFocus && activeTargetFocus->guardValid ?
 			std::addressof(*activeTargetFocus) : nullptr;
 		if (lowSpecTargetGuard && !loggedLowSpecTargetGuard_) {
 			loggedLowSpecTargetGuard_ = true;
 			spdlog::info(
-				"Low-spec target near-blur protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
+				"{} target near-blur protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
+				useStandaloneTargetGuard_ ? "Standalone" : "Low-spec",
 				lowSpecTargetGuard->guardCenter[0], lowSpecTargetGuard->guardCenter[1],
 				lowSpecTargetGuard->guardRadius[0], lowSpecTargetGuard->guardRadius[1],
 				lowSpecTargetGuard->headGuardCenter[0], lowSpecTargetGuard->headGuardCenter[1],
@@ -894,6 +905,11 @@ void CDoF::DoFRenderer::Dispatch(
 	std::uint32_t a_renderLeft,
 	std::uint32_t a_renderTop)
 {
+	constexpr auto kStandaloneNearFocusMinimumMeters = 0.15F;
+	const auto effectiveNearFocusRangeMeters =
+		useStandaloneNearFocusAssist_ && a_lowSpecTargetGuard ?
+			std::max(a_settings.nearFocusRangeMeters, kStandaloneNearFocusMinimumMeters) :
+			a_settings.nearFocusRangeMeters;
 	const DoFConstants dofData{
 		.transitionSpeed = resources_.focusInitialized ? a_settings.transitionSpeed : 1.0F,
 		.focusCoordinate = { a_settings.focusX, a_settings.focusY },
@@ -918,7 +934,7 @@ void CDoF::DoFRenderer::Dispatch(
 			Float2{ a_lowSpecTargetGuard->guardCenter[0], a_lowSpecTargetGuard->guardCenter[1] } : Float2{ 0.5F, 0.5F },
 		.targetGuardRadius = a_lowSpecTargetGuard ?
 			Float2{ a_lowSpecTargetGuard->guardRadius[0], a_lowSpecTargetGuard->guardRadius[1] } : Float2{ 1.0F, 1.0F },
-		.nearFocusRangeMeters = a_settings.nearFocusRangeMeters,
+		.nearFocusRangeMeters = effectiveNearFocusRangeMeters,
 		.farFocusRangeMeters = a_settings.farFocusRangeMeters,
 		.apertureBlades = std::clamp(a_settings.apertureBlades, 3U, 12U),
 		.apertureRoundness = std::clamp(a_settings.apertureRoundness, 0.0F, 1.0F),

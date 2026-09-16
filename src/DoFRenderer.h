@@ -136,6 +136,8 @@ namespace CDoF
 		bool loggedFirstFrame_{ false };
 		bool depthPathChecked_{ false };
 		bool useLowSpecDepthFallback_{ false };
+		bool useStandaloneTargetGuard_{ false };
+		bool useStandaloneNearFocusAssist_{ false };
 		bool loggedDepthFallbackUnavailable_{ false };
 		bool loggedLowSpecTargetGuard_{ false };
 		bool loggedRenderAreaDiagnostics_{ false };
