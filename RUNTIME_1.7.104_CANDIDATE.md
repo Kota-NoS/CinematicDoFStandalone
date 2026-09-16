@@ -30,6 +30,13 @@ Candidate 4 separates the two low-settings decisions so the established Communit
 - The exact-1.7.104 standalone target guard ignores SAO and activates only when SSR or 64-bit HDR is explicitly disabled while Community Shaders is absent.
 - The head guard keeps the same centre and outer radius, but its fully protected inner region increases from 72% to 82% of that radius. The body guard, close-up far guard, presets, INI defaults, and UI are unchanged.
 
+Candidate 5 removes only the exact-`1.7.104.0` gate from the standalone target guard. Testing on Skyrim 1.6.1170 proved that setting `bUse64bitsHDRRenderTarget=0` can reproduce the same player foreground-blur problem even without Community Shaders. Therefore:
+
+- With Community Shaders loaded, the established depth fallback remains unchanged and still considers disabled SAO, SSR, or 64-bit HDR.
+- Without Community Shaders, the standard depth path remains unchanged, while the existing target guard now activates on every supported SE/AE runtime when SSR or 64-bit HDR is explicitly disabled.
+- Disabled SAO alone still does not activate the standalone guard.
+- No shader, guard position/radius, preset, INI-default, UI, focus, or blur calculation was changed.
+
 ## Build verification completed
 
 - `releasedbg` x64 build: passed
@@ -48,7 +55,7 @@ Build and database checks prove that the compatibility declaration is present an
 
 ## テスト順序 / Test order
 
-### 1. Regression test on Skyrim 1.6.1170
+### 1. Regression and protection test on Skyrim 1.6.1170
 
 Use the No-INI candidate package so the existing settings remain untouched.
 
@@ -59,7 +66,9 @@ Use the No-INI candidate package so the existing settings remain untouched.
 5. Apply preset 7 and compare aperture shape, brightness, and near/far blur with the completed 0.8.32 build.
 6. Save, reload, change cells, and enter/leave dialogue.
 7. Compare FPS in the same scene and camera position.
-8. Keep `CinematicDoFStandalone.log` from the SKSE log directory if anything differs.
+8. Without Community Shaders, set `bUse64bitsHDRRenderTarget=0`, fully restart Skyrim, and verify that the tracked player remains sharp. The log should contain `Standalone target near-blur protection activated`.
+9. Restore `bUse64bitsHDRRenderTarget=1`, fully restart Skyrim, and verify that the standalone protection line is absent and the completed 0.8.32 rendering remains unchanged.
+10. Keep `CinematicDoFStandalone.log` from the SKSE log directory if anything differs.
 
 Acceptance condition: no visual, FPS, setting, save/load, or control regression from the completed 0.8.32 build.
 
@@ -74,7 +83,7 @@ Required tester environment:
 
 Run the same checks as the 1.6.1170 regression test. In particular, confirm that enabling DoF, opening the UI, changing focus modes, and using the hotkey do not crash.
 
-With Community Shaders absent and either SSR or 64-bit HDR disabled, verify player target tracking again. The log should contain `Skyrim 1.7.104 standalone target near-blur protection activated`, and the player should remain protected from foreground blur while the surrounding depth of field remains unchanged. Also verify that disabling SAO alone, with SSR and 64-bit HDR enabled, does not activate this standalone guard. The established Community Shaders depth fallback must still react to SAO, SSR, or 64-bit HDR exactly as before.
+With Community Shaders absent and either SSR or 64-bit HDR disabled, verify player target tracking again. The log should contain `Standalone target near-blur protection activated`, and the player should remain protected from foreground blur while the surrounding depth of field remains unchanged. Also verify that disabling SAO alone, with SSR and 64-bit HDR enabled, does not activate this standalone guard. The established Community Shaders depth fallback must still react to SAO, SSR, or 64-bit HDR exactly as before.
 
 If the game crashes or DoF does not render, collect:
 
@@ -87,7 +96,7 @@ If the game crashes or DoF does not render, collect:
 
 The plugin uses Address Library IDs, but two hooks call an instruction inside a relocated function and therefore also use a local call-site offset. Camera near/far clip values are also read at known offsets from a relocated global. These locations cannot be certified for 1.7.104 by compilation alone. They must be validated in the actual runtime before declaring official support.
 
-Candidate 4 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted.
+Candidate 5 is therefore still a test build. Successful game launch, menu operation, DoF rendering, focus-mode changes, player-protection behavior, cell transitions, save/load, and a same-scene FPS comparison are required before the 1.7.104 package can be promoted.
 
 Official references:
 

@@ -760,8 +760,7 @@ void CDoF::DoFRenderer::Apply()
 				(reflectionsEnabled && !*reflectionsEnabled) ||
 				(hdr64Enabled && !*hdr64Enabled);
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
-			useRuntime17104TargetGuard_ =
-				REL::Module::get().version() == REL::Version{ 1, 7, 104, 0 } &&
+			useStandaloneTargetGuard_ =
 				!communityShadersLoaded && standaloneTargetGuardSettings;
 			depthPathChecked_ = true;
 			spdlog::info(
@@ -838,14 +837,14 @@ void CDoF::DoFRenderer::Apply()
 		ID3D11RenderTargetView* restoreRTV = currentRTV.Get();
 		OutputMergerRestore restore{ context, restoreRTV, currentDSV.Get() };
 		context->OMSetRenderTargets(0, nullptr, nullptr);
-		const auto targetGuardEnabled = useLowSpecDepthFallback_ || useRuntime17104TargetGuard_;
+		const auto targetGuardEnabled = useLowSpecDepthFallback_ || useStandaloneTargetGuard_;
 		const auto* lowSpecTargetGuard = targetGuardEnabled && activeTargetFocus && activeTargetFocus->guardValid ?
 			std::addressof(*activeTargetFocus) : nullptr;
 		if (lowSpecTargetGuard && !loggedLowSpecTargetGuard_) {
 			loggedLowSpecTargetGuard_ = true;
 			spdlog::info(
 				"{} target near-blur protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
-				useRuntime17104TargetGuard_ ? "Skyrim 1.7.104 standalone" : "Low-spec",
+				useStandaloneTargetGuard_ ? "Standalone" : "Low-spec",
 				lowSpecTargetGuard->guardCenter[0], lowSpecTargetGuard->guardCenter[1],
 				lowSpecTargetGuard->guardRadius[0], lowSpecTargetGuard->guardRadius[1],
 				lowSpecTargetGuard->headGuardCenter[0], lowSpecTargetGuard->headGuardCenter[1],
