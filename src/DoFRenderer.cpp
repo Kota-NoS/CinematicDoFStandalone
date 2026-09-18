@@ -175,6 +175,7 @@ namespace
 	};
 
 	constexpr float kGameUnitToMeters = 0.01428F;
+	constexpr float kTargetNearFocusMinimumMeters = 0.20F;
 
 	RE::NiCamera* FindActiveNiCamera(RE::NiAVObject* a_object)
 	{
@@ -773,16 +774,18 @@ void CDoF::DoFRenderer::Apply()
 			// foreground-blur failure. SAO/SSR still select the established depth fallback.
 			const auto hdrTargetGuardSetting =
 				hdr64Enabled && !*hdr64Enabled;
+			const auto targetNearFocusAssistSetting =
+				(reflectionsEnabled && !*reflectionsEnabled) ||
+				(hdr64Enabled && !*hdr64Enabled);
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
 			useCommunityShadersTargetGuard_ =
 				communityShadersLoaded && hdrTargetGuardSetting;
 			useStandaloneTargetGuard_ =
 				!communityShadersLoaded && hdrTargetGuardSetting;
-			useStandaloneNearFocusAssist_ =
-				!communityShadersLoaded && hdr64Enabled && !*hdr64Enabled;
+			useTargetNearFocusAssist_ = targetNearFocusAssistSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path; Community Shaders target guard={}; standalone target guard={}; HDR near-focus assist={}",
+				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path; Community Shaders target guard={}; standalone target guard={}; target near-focus assist={}",
 				saoEnabled ? (*saoEnabled ? "on" : "off") : "unknown",
 				reflectionsEnabled ? (*reflectionsEnabled ? "on" : "off") : "unknown",
 				hdr64Enabled ? (*hdr64Enabled ? "on" : "off") : "unknown",
@@ -790,7 +793,7 @@ void CDoF::DoFRenderer::Apply()
 				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard",
 				useCommunityShadersTargetGuard_ ? "enabled" : "disabled",
 				useStandaloneTargetGuard_ ? "enabled" : "disabled",
-				useStandaloneNearFocusAssist_ ? "enabled" : "disabled");
+				useTargetNearFocusAssist_ ? "enabled" : "disabled");
 			if (lowSpecDepthSettings && !communityShadersLoaded) {
 				spdlog::warn(
 					"Low-spec depth settings were detected, but Community Shaders was not loaded; preserving the standard depth path");
@@ -870,8 +873,10 @@ void CDoF::DoFRenderer::Apply()
 		context->OMSetRenderTargets(0, nullptr, nullptr);
 		const auto targetGuardEnabled =
 			useCommunityShadersTargetGuard_ || useStandaloneTargetGuard_;
-		const auto* lowSpecTargetGuard = targetGuardEnabled && activeTargetFocus && activeTargetFocus->guardValid ?
+		const auto* validTargetFocus = activeTargetFocus && activeTargetFocus->guardValid ?
 			std::addressof(*activeTargetFocus) : nullptr;
+		const auto* lowSpecTargetGuard = targetGuardEnabled ? validTargetFocus : nullptr;
+		const auto targetNearFocusAssist = useTargetNearFocusAssist_ && validTargetFocus;
 		if (lowSpecTargetGuard && !loggedLowSpecTargetGuard_) {
 			loggedLowSpecTargetGuard_ = true;
 			spdlog::info(
@@ -882,12 +887,20 @@ void CDoF::DoFRenderer::Apply()
 				lowSpecTargetGuard->headGuardCenter[0], lowSpecTargetGuard->headGuardCenter[1],
 				lowSpecTargetGuard->headGuardValid ? lowSpecTargetGuard->headGuardRadius : 0.0F);
 		}
+		if (targetNearFocusAssist && !loggedTargetNearFocusAssist_) {
+			loggedTargetNearFocusAssist_ = true;
+			spdlog::info(
+				"Target near-focus assist activated (saved {:.2f} m; effective {:.2f} m)",
+				effectiveSettings.nearFocusRangeMeters,
+				std::max(effectiveSettings.nearFocusRangeMeters, kTargetNearFocusMinimumMeters));
+		}
 		Dispatch(
 			context,
 			mainTarget.SRV,
 			depth,
 			effectiveSettings,
 			lowSpecTargetGuard,
+			targetNearFocusAssist,
 			inputDescription.Width,
 			inputDescription.Height,
 			renderArea.left,
@@ -928,15 +941,15 @@ void CDoF::DoFRenderer::Dispatch(
 	ID3D11ShaderResourceView* a_depth,
 	const Settings& a_settings,
 	const TargetFocusSample* a_lowSpecTargetGuard,
+	bool a_targetNearFocusAssist,
 	std::uint32_t a_inputWidth,
 	std::uint32_t a_inputHeight,
 	std::uint32_t a_renderLeft,
 	std::uint32_t a_renderTop)
 {
-	constexpr auto kStandaloneNearFocusMinimumMeters = 0.15F;
 	const auto effectiveNearFocusRangeMeters =
-		useStandaloneNearFocusAssist_ && a_lowSpecTargetGuard ?
-			std::max(a_settings.nearFocusRangeMeters, kStandaloneNearFocusMinimumMeters) :
+		a_targetNearFocusAssist ?
+			std::max(a_settings.nearFocusRangeMeters, kTargetNearFocusMinimumMeters) :
 			a_settings.nearFocusRangeMeters;
 	const DoFConstants dofData{
 		.transitionSpeed = resources_.focusInitialized ? a_settings.transitionSpeed : 1.0F,

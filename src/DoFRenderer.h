@@ -103,6 +103,7 @@ namespace CDoF
 			ID3D11ShaderResourceView* a_depth,
 			const Settings& a_settings,
 			const TargetFocusSample* a_lowSpecTargetGuard,
+			bool a_targetNearFocusAssist,
 			std::uint32_t a_inputWidth,
 			std::uint32_t a_inputHeight,
 			std::uint32_t a_renderLeft,
@@ -138,9 +139,10 @@ namespace CDoF
 		bool useLowSpecDepthFallback_{ false };
 		bool useCommunityShadersTargetGuard_{ false };
 		bool useStandaloneTargetGuard_{ false };
-		bool useStandaloneNearFocusAssist_{ false };
+		bool useTargetNearFocusAssist_{ false };
 		bool loggedDepthFallbackUnavailable_{ false };
 		bool loggedLowSpecTargetGuard_{ false };
+		bool loggedTargetNearFocusAssist_{ false };
 		bool loggedRenderAreaDiagnostics_{ false };
 		bool dialogueOnlyPrewarmed_{ false };
 		TargetFocusMode targetFocusMode_{ TargetFocusMode::kNone };
