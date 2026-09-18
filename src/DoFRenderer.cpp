@@ -769,22 +769,26 @@ void CDoF::DoFRenderer::Apply()
 				(saoEnabled && !*saoEnabled) ||
 				(reflectionsEnabled && !*reflectionsEnabled) ||
 				(hdr64Enabled && !*hdr64Enabled);
-			const auto standaloneTargetGuardSettings =
-				(reflectionsEnabled && !*reflectionsEnabled) ||
-				(hdr64Enabled && !*hdr64Enabled);
+			// The projected subject mask is only needed for the confirmed 64-bit HDR-off
+			// foreground-blur failure. SAO/SSR still select the established depth fallback.
+			const auto hdrTargetGuardSetting =
+				hdr64Enabled && !*hdr64Enabled;
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
+			useCommunityShadersTargetGuard_ =
+				communityShadersLoaded && hdrTargetGuardSetting;
 			useStandaloneTargetGuard_ =
-				!communityShadersLoaded && standaloneTargetGuardSettings;
+				!communityShadersLoaded && hdrTargetGuardSetting;
 			useStandaloneNearFocusAssist_ =
 				!communityShadersLoaded && hdr64Enabled && !*hdr64Enabled;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path; standalone target guard={}; HDR near-focus assist={}",
+				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path; Community Shaders target guard={}; standalone target guard={}; HDR near-focus assist={}",
 				saoEnabled ? (*saoEnabled ? "on" : "off") : "unknown",
 				reflectionsEnabled ? (*reflectionsEnabled ? "on" : "off") : "unknown",
 				hdr64Enabled ? (*hdr64Enabled ? "on" : "off") : "unknown",
 				communityShadersLoaded ? "loaded" : "not loaded",
 				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard",
+				useCommunityShadersTargetGuard_ ? "enabled" : "disabled",
 				useStandaloneTargetGuard_ ? "enabled" : "disabled",
 				useStandaloneNearFocusAssist_ ? "enabled" : "disabled");
 			if (lowSpecDepthSettings && !communityShadersLoaded) {
@@ -864,14 +868,15 @@ void CDoF::DoFRenderer::Apply()
 		ID3D11RenderTargetView* restoreRTV = currentRTV.Get();
 		OutputMergerRestore restore{ context, restoreRTV, currentDSV.Get() };
 		context->OMSetRenderTargets(0, nullptr, nullptr);
-		const auto targetGuardEnabled = useLowSpecDepthFallback_ || useStandaloneTargetGuard_;
+		const auto targetGuardEnabled =
+			useCommunityShadersTargetGuard_ || useStandaloneTargetGuard_;
 		const auto* lowSpecTargetGuard = targetGuardEnabled && activeTargetFocus && activeTargetFocus->guardValid ?
 			std::addressof(*activeTargetFocus) : nullptr;
 		if (lowSpecTargetGuard && !loggedLowSpecTargetGuard_) {
 			loggedLowSpecTargetGuard_ = true;
 			spdlog::info(
 				"{} target near-blur protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
-				useStandaloneTargetGuard_ ? "Standalone" : "Low-spec",
+				useStandaloneTargetGuard_ ? "Standalone" : "Community Shaders",
 				lowSpecTargetGuard->guardCenter[0], lowSpecTargetGuard->guardCenter[1],
 				lowSpecTargetGuard->guardRadius[0], lowSpecTargetGuard->guardRadius[1],
 				lowSpecTargetGuard->headGuardCenter[0], lowSpecTargetGuard->headGuardCenter[1],
