@@ -141,6 +141,7 @@ namespace CDoF
 		bool loggedDepthFallbackUnavailable_{ false };
 		bool loggedLowSpecTargetGuard_{ false };
 		bool loggedRenderAreaDiagnostics_{ false };
+		bool dialogueOnlyPrewarmed_{ false };
 		TargetFocusMode targetFocusMode_{ TargetFocusMode::kNone };
 		std::mutex mutex_;
 	};

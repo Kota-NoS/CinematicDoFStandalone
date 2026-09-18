@@ -669,14 +669,19 @@ void CDoF::DoFRenderer::Apply()
 			targetFocusMode = TargetFocusMode::kDialogue;
 		}
 	}
-	if (targetFocusMode == TargetFocusMode::kNone && !modeSettings_.normalGameplayEnabled) {
+	const auto dialogueOnlyIdle =
+		targetFocusMode == TargetFocusMode::kNone && !modeSettings_.normalGameplayEnabled;
+	if (dialogueOnlyIdle) {
 		if (targetFocusMode_ != TargetFocusMode::kNone) {
 			targetFocusMode_ = TargetFocusMode::kNone;
 			spdlog::info("Dialogue target focus ended; normal gameplay DoF is disabled");
 		}
-		return;
+		if (dialogueOnlyPrewarmed_) {
+			return;
+		}
 	}
-	if (targetFocusMode == TargetFocusMode::kNone && targetFocusSettings_.consoleEnabled) {
+	if (!dialogueOnlyIdle &&
+		targetFocusMode == TargetFocusMode::kNone && targetFocusSettings_.consoleEnabled) {
 		const auto playerSource = targetFocusSettings_.targetSource == TargetFocusSource::kPlayer;
 		const auto focus = playerSource ? GetPlayerTargetFocus() : GetConsoleTargetFocus();
 		if (focus) {
@@ -716,7 +721,15 @@ void CDoF::DoFRenderer::Apply()
 		camera && camera->IsInFirstPerson() && !effectiveSettings.enableFirstPersonNearBlur) {
 		effectiveSettings.nearPlaneMaxBlur = 0.0F;
 	}
-	if (!effectiveSettings.enabled || IsMenuBlocked(effectiveSettings)) {
+	// Dialogue-only mode normally returns before touching the renderer. Force the
+	// existing menu guard during its one-time preparation so shader compilation
+	// and texture creation happen on the first safe gameplay frame, not in the
+	// main/loading/map menu and not on the first conversation frame.
+	auto preparationSettings = effectiveSettings;
+	if (dialogueOnlyIdle) {
+		preparationSettings.disableInMenus = true;
+	}
+	if (!effectiveSettings.enabled || IsMenuBlocked(preparationSettings)) {
 		return;
 	}
 
@@ -832,10 +845,20 @@ void CDoF::DoFRenderer::Apply()
 				scissor.bottom);
 		}
 
+		const auto preparationStarted = std::chrono::steady_clock::now();
 		if (inputDescription.SampleDesc.Count != 1 ||
 			!EnsureResources(device, inputDescription, renderArea.width, renderArea.height)) {
 			permanentlyDisabled_ = true;
 			spdlog::critical("Depth of field disabled because GPU resources could not be created");
+			return;
+		}
+		if (dialogueOnlyIdle) {
+			dialogueOnlyPrewarmed_ = true;
+			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now() - preparationStarted);
+			spdlog::info(
+				"Dialogue-only renderer prewarm completed in {} ms; no DoF frame was rendered",
+				elapsed.count());
 			return;
 		}
 		ID3D11RenderTargetView* restoreRTV = currentRTV.Get();
