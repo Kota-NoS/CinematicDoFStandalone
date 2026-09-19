@@ -663,8 +663,16 @@ void CDoF::DoFRenderer::Apply()
 		if (const auto focus = GetDialogueTargetFocus()) {
 			effectiveSettings = dialogueLensSettings_;
 			effectiveSettings.enabled = true;
-			effectiveSettings.autoFocus = false;
-			effectiveSettings.manualFocusMeters = focus->distanceMeters;
+			// Focus on the visible surface at the projected dialogue anchor.  Using the
+			// camera-space anchor distance can disagree with the depth texture supplied
+			// by Community Shaders, which leaves the entire subject on the near side.
+			effectiveSettings.autoFocus = focus->surfaceFocusValid;
+			if (focus->surfaceFocusValid) {
+				effectiveSettings.focusX = focus->focusCoordinate[0];
+				effectiveSettings.focusY = focus->focusCoordinate[1];
+			} else {
+				effectiveSettings.manualFocusMeters = focus->distanceMeters;
+			}
 			ApplyDepthStrength(effectiveSettings, targetFocusSettings_.dialogueDepthStrength);
 			activeTargetFocus = focus;
 			targetFocusMode = TargetFocusMode::kDialogue;
@@ -688,13 +696,18 @@ void CDoF::DoFRenderer::Apply()
 		if (focus) {
 			effectiveSettings = settings_;
 			effectiveSettings.enabled = true;
-			// Use the projected head/target anchor distance, matching the restored behaviour.
-			// GetTargetFocus continues
-			// to populate the visible-surface coordinate so a future advanced UI
-			// option can select it without changing the target sampling code again.
-			effectiveSettings.autoFocus = false;
-			effectiveSettings.manualFocusMeters = std::clamp(
-				focus->distanceMeters + targetFocusSettings_.targetFocusOffsetMeters, 0.1F, 150.0F);
+			// Match Screen AF: sample the same depth texture used by the CoC pass at
+			// the projected target anchor.  This avoids mixing a camera-space distance
+			// with a Community Shaders depth surface that can use a different mapping.
+			effectiveSettings.autoFocus = focus->surfaceFocusValid;
+			if (focus->surfaceFocusValid) {
+				effectiveSettings.focusX = focus->focusCoordinate[0];
+				effectiveSettings.focusY = focus->focusCoordinate[1];
+				effectiveSettings.autoFocusOffsetMeters = targetFocusSettings_.targetFocusOffsetMeters;
+			} else {
+				effectiveSettings.manualFocusMeters = std::clamp(
+					focus->distanceMeters + targetFocusSettings_.targetFocusOffsetMeters, 0.1F, 150.0F);
+			}
 			activeTargetFocus = focus;
 			targetFocusMode = playerSource ? TargetFocusMode::kPlayer : TargetFocusMode::kConsole;
 		}
@@ -703,15 +716,31 @@ void CDoF::DoFRenderer::Apply()
 		targetFocusMode_ = targetFocusMode;
 		switch (targetFocusMode_) {
 		case TargetFocusMode::kDialogue:
-			spdlog::info("Dialogue target focus activated at {:.2f} m", effectiveSettings.manualFocusMeters);
+			if (effectiveSettings.autoFocus) {
+				spdlog::info("Dialogue target focus activated using visible-surface depth at ({:.3f}, {:.3f})",
+					effectiveSettings.focusX, effectiveSettings.focusY);
+			} else {
+				spdlog::info("Dialogue target focus activated using projected anchor distance at {:.2f} m",
+					effectiveSettings.manualFocusMeters);
+			}
 			break;
 		case TargetFocusMode::kPlayer:
-			spdlog::info("Player target focus activated using projected anchor distance at {:.2f} m",
-				effectiveSettings.manualFocusMeters);
+			if (effectiveSettings.autoFocus) {
+				spdlog::info("Player target focus activated using visible-surface depth at ({:.3f}, {:.3f}); offset {:+.2f} m",
+					effectiveSettings.focusX, effectiveSettings.focusY, effectiveSettings.autoFocusOffsetMeters);
+			} else {
+				spdlog::info("Player target focus activated using projected anchor distance at {:.2f} m",
+					effectiveSettings.manualFocusMeters);
+			}
 			break;
 		case TargetFocusMode::kConsole:
-			spdlog::info("Console target focus activated using projected anchor distance at {:.2f} m",
-				effectiveSettings.manualFocusMeters);
+			if (effectiveSettings.autoFocus) {
+				spdlog::info("Console target focus activated using visible-surface depth at ({:.3f}, {:.3f}); offset {:+.2f} m",
+					effectiveSettings.focusX, effectiveSettings.focusY, effectiveSettings.autoFocusOffsetMeters);
+			} else {
+				spdlog::info("Console target focus activated using projected anchor distance at {:.2f} m",
+					effectiveSettings.manualFocusMeters);
+			}
 			break;
 		case TargetFocusMode::kNone:
 			spdlog::info("Target focus ended; restored normal settings");
@@ -772,17 +801,20 @@ void CDoF::DoFRenderer::Apply()
 				(saoEnabled && !*saoEnabled) ||
 				(reflectionsEnabled && !*reflectionsEnabled) ||
 				(hdr64Enabled && !*hdr64Enabled);
-			// Community Shaders can change the renderer's HDR flag after the INI has been
-			// loaded, so the setting is not a reliable description of the texture passed
-			// to this effect. Select the subject safeguards from the actual texture format;
-			// SAO/SSR/HDR settings continue to select the established depth fallback only.
-			const auto targetProtectionRequired = !actualHdr64Target;
+			// The actual target format remains useful diagnostics, but Community Shaders
+			// normally supplies its own non-64-bit target even when the game setting is on.
+			// Do not treat that normal format as a reason to enable a visible subject mask.
+			const auto hdrTargetGuardSetting =
+				hdr64Enabled && !*hdr64Enabled;
+			const auto targetNearFocusAssistSetting =
+				(reflectionsEnabled && !*reflectionsEnabled) ||
+				(hdr64Enabled && !*hdr64Enabled);
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
 			useCommunityShadersTargetGuard_ =
-				communityShadersLoaded && targetProtectionRequired;
+				communityShadersLoaded && hdrTargetGuardSetting;
 			useStandaloneTargetGuard_ =
-				!communityShadersLoaded && targetProtectionRequired;
-			useTargetNearFocusAssist_ = targetProtectionRequired;
+				!communityShadersLoaded && hdrTargetGuardSetting;
+			useTargetNearFocusAssist_ = targetNearFocusAssistSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
 				"Display depth settings: SAO={}, SSR={}, 64-bit HDR setting={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; Community Shaders target guard={}; standalone target guard={}; target near-focus assist={}",
