@@ -766,29 +766,31 @@ void CDoF::DoFRenderer::Apply()
 			const auto hdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
 			const auto communityShadersLoaded =
 				GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
+			const auto actualHdr64Target =
+				inputDescription.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
 			const auto lowSpecDepthSettings =
 				(saoEnabled && !*saoEnabled) ||
 				(reflectionsEnabled && !*reflectionsEnabled) ||
 				(hdr64Enabled && !*hdr64Enabled);
-			// The projected subject mask is only needed for the confirmed 64-bit HDR-off
-			// foreground-blur failure. SAO/SSR still select the established depth fallback.
-			const auto hdrTargetGuardSetting =
-				hdr64Enabled && !*hdr64Enabled;
-			const auto targetNearFocusAssistSetting =
-				(reflectionsEnabled && !*reflectionsEnabled) ||
-				(hdr64Enabled && !*hdr64Enabled);
+			// Community Shaders can change the renderer's HDR flag after the INI has been
+			// loaded, so the setting is not a reliable description of the texture passed
+			// to this effect. Select the subject safeguards from the actual texture format;
+			// SAO/SSR/HDR settings continue to select the established depth fallback only.
+			const auto targetProtectionRequired = !actualHdr64Target;
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
 			useCommunityShadersTargetGuard_ =
-				communityShadersLoaded && hdrTargetGuardSetting;
+				communityShadersLoaded && targetProtectionRequired;
 			useStandaloneTargetGuard_ =
-				!communityShadersLoaded && hdrTargetGuardSetting;
-			useTargetNearFocusAssist_ = targetNearFocusAssistSetting;
+				!communityShadersLoaded && targetProtectionRequired;
+			useTargetNearFocusAssist_ = targetProtectionRequired;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path; Community Shaders target guard={}; standalone target guard={}; target near-focus assist={}",
+				"Display depth settings: SAO={}, SSR={}, 64-bit HDR setting={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; Community Shaders target guard={}; standalone target guard={}; target near-focus assist={}",
 				saoEnabled ? (*saoEnabled ? "on" : "off") : "unknown",
 				reflectionsEnabled ? (*reflectionsEnabled ? "on" : "off") : "unknown",
 				hdr64Enabled ? (*hdr64Enabled ? "on" : "off") : "unknown",
+				static_cast<std::uint32_t>(inputDescription.Format),
+				actualHdr64Target ? "yes" : "no",
 				communityShadersLoaded ? "loaded" : "not loaded",
 				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard",
 				useCommunityShadersTargetGuard_ ? "enabled" : "disabled",
