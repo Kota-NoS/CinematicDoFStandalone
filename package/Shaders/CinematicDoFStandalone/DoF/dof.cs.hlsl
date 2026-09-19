@@ -295,24 +295,6 @@ float GetHeadTargetGuard(float2 uv)
 	return 1.0f - smoothstep(0.72f, 1.0f, length(headDelta) / HeadGuardRadius);
 }
 
-float GetCloseUpHeadFarGuard(float2 uv)
-{
-	if (!TargetGuardEnabled || HeadGuardRadius <= 0.0f)
-		return 0.0f;
-	// Far-side protection is needed only when the face fills a large part of the
-	// frame.  At gameplay distances it would sharpen real background exposed by
-	// a moving head and reveal the spatial mask as a halo.  Fade it in by the
-	// projected head size and keep it inside the broader near-side guard.
-	float closeUpStrength = smoothstep(0.18f, 0.26f, HeadGuardRadius);
-	if (closeUpStrength <= 0.0f)
-		return 0.0f;
-	float aspect = SharedData::BufferDim.x / max(SharedData::BufferDim.y, 1.0f);
-	float2 headDelta = float2((uv.x - HeadGuardCenter.x) * aspect, uv.y - HeadGuardCenter.y);
-	float innerRadius = max(HeadGuardRadius * 0.86f, 1e-4f);
-	float innerGuard = 1.0f - smoothstep(0.68f, 1.0f, length(headDelta) / innerRadius);
-	return innerGuard * closeUpStrength;
-}
-
 float GetTargetGuard(float2 uv)
 {
 	return max(GetBodyTargetGuard(uv), GetHeadTargetGuard(uv));
@@ -338,25 +320,19 @@ float GetFocusRangeProtection(float2 uv)
 	return 1.0f - smoothstep(focusRange, focusRange + feather, abs(signedFocusDistance));
 }
 
-float GetTargetNearLayerProtection(float2 uv)
+float GetTargetDepthProtection(float2 uv)
 {
 	if (!TargetGuardEnabled)
 		return 0.0f;
 	float focusDepthInM = PreviousFocus() * 1000.0f;
 	float pixelDepthInM = GetDepth(uv) * 1000.0f;
 	float signedFocusDistance = pixelDepthInM - focusDepthInM;
-	// The expanded near layer needs spatial protection on the Low path, but the
-	// guard must not suppress genuine foreground that happens to cross the actor's
-	// screen-space bounds.  Keep only a narrow band around the tracked focus plane;
-	// both substantially nearer foreground and farther background remain unguarded.
+	// Confirm every projected actor guard with depth.  This keeps the face, torso,
+	// and hands on one protection path while preventing the head circle from
+	// sharpening neck gaps or background pixels during close-ups and edge framing.
+	// Substantially nearer foreground and farther background remain unguarded.
 	float subjectDepthGate = 1.0f - smoothstep(0.20f, 0.75f, abs(signedFocusDistance));
-	float bodyProtection = GetBodyTargetGuard(uv) * subjectDepthGate;
-	// Close-up facial depth can be misclassified behind the focus plane on Low.
-	// Preserve the 0.8.17 exception only when the projected head is large enough;
-	// gameplay-distance background still uses the depth gate above.
-	float closeUpStrength = smoothstep(0.18f, 0.26f, HeadGuardRadius);
-	float headProtection = GetHeadTargetGuard(uv) * max(subjectDepthGate, closeUpStrength);
-	return max(bodyProtection, headProtection);
+	return GetTargetGuard(uv) * subjectDepthGate;
 }
 
 void FillFocusInfoData(inout FocusInfo toFill)
@@ -724,14 +700,10 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	FillFocusInfoData(focusInfo);
 
 	float coc = CalculateBlurDiscSize(focusInfo);
-	// Low graphics can classify the tracked face on either side of the focus
-	// plane.  Protect both signs only inside the close-fitting head circle.  The
-	// broader body guard remains near-plane-only so distant background around the
-	// actor keeps its normal far blur.
-	// Use the same focus-depth band as the final near-layer composite.  The old
-	// unconditional near-side ellipse zeroed the CoC of real foreground grass and
-	// created a sharp body-shaped window while the tracked actor was moving.
-	float targetProtection = coc < 0.0f ? GetTargetNearLayerProtection(uv) : GetCloseUpHeadFarGuard(uv);
+	// Use one depth-confirmed subject guard on both sides of the focus plane.  The
+	// previous close-up head exception ignored depth and could expose its projected
+	// circle around the neck or near a screen edge.
+	float targetProtection = GetTargetDepthProtection(uv);
 	coc = lerp(coc, 0.0f, targetProtection);
 	RWTexCoC[DTid] = coc;
 }
@@ -1065,7 +1037,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	float4 color;
 	color = lerp(originalFragment, farFragment, blendFactor);
 	float nearBlend = nearFragment.a * (NearPlaneMaxBlur != 0);
-	float nearBlurProtection = max(GetTargetNearLayerProtection(uv), GetFocusRangeProtection(uv));
+	float nearBlurProtection = max(GetTargetDepthProtection(uv), GetFocusRangeProtection(uv));
 	nearBlend *= 1.0f - nearBlurProtection;
 	color.rgb = lerp(color.rgb, nearFragment.rgb, nearBlend);
 	color.a = 1.0;

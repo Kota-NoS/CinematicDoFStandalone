@@ -104,7 +104,7 @@ namespace CDoF
 			ID3D11ShaderResourceView* a_color,
 			ID3D11ShaderResourceView* a_depth,
 			const Settings& a_settings,
-			const TargetFocusSample* a_lowSpecTargetGuard,
+			const TargetFocusSample* a_targetGuard,
 			float a_targetNearFocusMinimumMeters,
 			std::uint32_t a_inputWidth,
 			std::uint32_t a_inputHeight,
@@ -139,14 +139,14 @@ namespace CDoF
 		bool loggedFirstFrame_{ false };
 		bool depthPathChecked_{ false };
 		bool useLowSpecDepthFallback_{ false };
-		bool useStandaloneTargetGuard_{ false };
+		bool useStandaloneNonActorTargetGuard_{ false };
 		bool useCommunityShadersActorNearFocusAssist_{ false };
 		bool useStandaloneNearFocusAssist_{ false };
 		std::optional<bool> startupSaoEnabled_;
 		std::optional<bool> startupReflectionsEnabled_;
 		std::optional<bool> startupHdr64Enabled_;
 		bool loggedDepthFallbackUnavailable_{ false };
-		bool loggedLowSpecTargetGuard_{ false };
+		bool loggedTargetGuard_{ false };
 		bool loggedTargetNearFocusAssist_{ false };
 		bool loggedRenderAreaDiagnostics_{ false };
 		bool dialogueOnlyPrewarmed_{ false };

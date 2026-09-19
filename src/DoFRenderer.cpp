@@ -834,7 +834,7 @@ void CDoF::DoFRenderer::Apply()
 				(runtimeReflectionsEnabled && !*runtimeReflectionsEnabled) ||
 				standaloneHdrTargetGuardSetting;
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
-			useStandaloneTargetGuard_ =
+			useStandaloneNonActorTargetGuard_ =
 				!communityShadersLoaded && standaloneTargetGuardSetting;
 			useCommunityShadersActorNearFocusAssist_ =
 				communityShadersLoaded && communityShadersActorNearFocusSetting;
@@ -842,7 +842,7 @@ void CDoF::DoFRenderer::Apply()
 				!communityShadersLoaded && standaloneHdrTargetGuardSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; startup 64-bit HDR used for Community Shaders actor assist={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; Community Shaders subject mask=disabled; standalone target guard={}; Community Shaders HDR-off actor near-focus assist={}; standalone HDR-off near-focus assist={}",
+				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; startup 64-bit HDR used for Community Shaders actor assist={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders HDR-off actor near-focus assist={}; standalone HDR-off near-focus assist={}",
 				DescribeDisplayBool(runtimeSaoEnabled),
 				DescribeDisplayBool(runtimeReflectionsEnabled),
 				DescribeDisplayBool(runtimeHdr64Enabled),
@@ -851,7 +851,7 @@ void CDoF::DoFRenderer::Apply()
 				actualHdr64Target ? "yes" : "no",
 				communityShadersLoaded ? "loaded" : "not loaded",
 				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard",
-				useStandaloneTargetGuard_ ? "enabled" : "disabled",
+				useStandaloneNonActorTargetGuard_ ? "enabled" : "disabled",
 				useCommunityShadersActorNearFocusAssist_ ? "enabled" : "disabled",
 				useStandaloneNearFocusAssist_ ? "enabled" : "disabled");
 			if (lowSpecDepthSettings && !communityShadersLoaded) {
@@ -933,8 +933,15 @@ void CDoF::DoFRenderer::Apply()
 		context->OMSetRenderTargets(0, nullptr, nullptr);
 		const auto* validTargetFocus = activeTargetFocus ?
 			std::addressof(*activeTargetFocus) : nullptr;
-		const auto* lowSpecTargetGuard =
-			useStandaloneTargetGuard_ && validTargetFocus && validTargetFocus->guardValid ?
+		// Actor protection now follows one depth-confirmed path in every display and
+		// Community Shaders configuration.  Preserve the legacy standalone guard for
+		// non-actor console targets only in the low-spec configurations that required it.
+		const auto actorTargetGuard = validTargetFocus && validTargetFocus->actor;
+		const auto standaloneNonActorTargetGuard =
+			validTargetFocus && !validTargetFocus->actor && useStandaloneNonActorTargetGuard_;
+		const auto* targetGuard =
+			validTargetFocus && validTargetFocus->guardValid &&
+				(actorTargetGuard || standaloneNonActorTargetGuard) ?
 				validTargetFocus : nullptr;
 		float targetNearFocusMinimumMeters{};
 		const char* targetNearFocusAssistName = nullptr;
@@ -945,14 +952,15 @@ void CDoF::DoFRenderer::Apply()
 			targetNearFocusMinimumMeters = kStandaloneNearFocusMinimumMeters;
 			targetNearFocusAssistName = "Standalone HDR-off";
 		}
-		if (lowSpecTargetGuard && !loggedLowSpecTargetGuard_) {
-			loggedLowSpecTargetGuard_ = true;
+		if (targetGuard && !loggedTargetGuard_) {
+			loggedTargetGuard_ = true;
 			spdlog::info(
-				"Standalone target near-blur protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
-				lowSpecTargetGuard->guardCenter[0], lowSpecTargetGuard->guardCenter[1],
-				lowSpecTargetGuard->guardRadius[0], lowSpecTargetGuard->guardRadius[1],
-				lowSpecTargetGuard->headGuardCenter[0], lowSpecTargetGuard->headGuardCenter[1],
-				lowSpecTargetGuard->headGuardValid ? lowSpecTargetGuard->headGuardRadius : 0.0F);
+				"{} depth-confirmed target protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
+				targetGuard->actor ? "Tracked actor" : "Standalone non-actor",
+				targetGuard->guardCenter[0], targetGuard->guardCenter[1],
+				targetGuard->guardRadius[0], targetGuard->guardRadius[1],
+				targetGuard->headGuardCenter[0], targetGuard->headGuardCenter[1],
+				targetGuard->headGuardValid ? targetGuard->headGuardRadius : 0.0F);
 		}
 		if (targetNearFocusMinimumMeters > 0.0F && !loggedTargetNearFocusAssist_) {
 			loggedTargetNearFocusAssist_ = true;
@@ -968,7 +976,7 @@ void CDoF::DoFRenderer::Apply()
 			mainTarget.SRV,
 			depth,
 			effectiveSettings,
-			lowSpecTargetGuard,
+			targetGuard,
 			targetNearFocusMinimumMeters,
 			inputDescription.Width,
 			inputDescription.Height,
@@ -1009,7 +1017,7 @@ void CDoF::DoFRenderer::Dispatch(
 	ID3D11ShaderResourceView* a_color,
 	ID3D11ShaderResourceView* a_depth,
 	const Settings& a_settings,
-	const TargetFocusSample* a_lowSpecTargetGuard,
+	const TargetFocusSample* a_targetGuard,
 	float a_targetNearFocusMinimumMeters,
 	std::uint32_t a_inputWidth,
 	std::uint32_t a_inputHeight,
@@ -1038,23 +1046,23 @@ void CDoF::DoFRenderer::Dispatch(
 		.petzvalStrength = a_settings.petzvalStrength,
 		.autoFocus = a_settings.autoFocus ? 1U : 0U,
 		.autoFocusOffsetPlane = a_settings.autoFocusOffsetMeters / 1000.0F,
-		.targetGuardEnabled = a_lowSpecTargetGuard ? 1U : 0U,
+		.targetGuardEnabled = a_targetGuard ? 1U : 0U,
 		.apertureShapeStrength = a_settings.apertureShapeStrength,
-		.targetGuardCenter = a_lowSpecTargetGuard ?
-			Float2{ a_lowSpecTargetGuard->guardCenter[0], a_lowSpecTargetGuard->guardCenter[1] } : Float2{ 0.5F, 0.5F },
-		.targetGuardRadius = a_lowSpecTargetGuard ?
-			Float2{ a_lowSpecTargetGuard->guardRadius[0], a_lowSpecTargetGuard->guardRadius[1] } : Float2{ 1.0F, 1.0F },
+		.targetGuardCenter = a_targetGuard ?
+			Float2{ a_targetGuard->guardCenter[0], a_targetGuard->guardCenter[1] } : Float2{ 0.5F, 0.5F },
+		.targetGuardRadius = a_targetGuard ?
+			Float2{ a_targetGuard->guardRadius[0], a_targetGuard->guardRadius[1] } : Float2{ 1.0F, 1.0F },
 		.nearFocusRangeMeters = effectiveNearFocusRangeMeters,
 		.farFocusRangeMeters = a_settings.farFocusRangeMeters,
 		.apertureBlades = std::clamp(a_settings.apertureBlades, 3U, 12U),
 		.apertureRoundness = std::clamp(a_settings.apertureRoundness, 0.0F, 1.0F),
-		.headGuardCenter = a_lowSpecTargetGuard && a_lowSpecTargetGuard->headGuardValid ?
-			Float2{ a_lowSpecTargetGuard->headGuardCenter[0], a_lowSpecTargetGuard->headGuardCenter[1] } : Float2{ 0.5F, 0.5F },
-		.headGuardRadius = a_lowSpecTargetGuard && a_lowSpecTargetGuard->headGuardValid ?
-			a_lowSpecTargetGuard->headGuardRadius : 0.0F,
+		.headGuardCenter = a_targetGuard && a_targetGuard->headGuardValid ?
+			Float2{ a_targetGuard->headGuardCenter[0], a_targetGuard->headGuardCenter[1] } : Float2{ 0.5F, 0.5F },
+		.headGuardRadius = a_targetGuard && a_targetGuard->headGuardValid ?
+			a_targetGuard->headGuardRadius : 0.0F,
 		.padding3 = 0U,
-		.targetGuardAxis = a_lowSpecTargetGuard ?
-			Float2{ a_lowSpecTargetGuard->guardAxis[0], a_lowSpecTargetGuard->guardAxis[1] } : Float2{},
+		.targetGuardAxis = a_targetGuard ?
+			Float2{ a_targetGuard->guardAxis[0], a_targetGuard->guardAxis[1] } : Float2{},
 		.padding4 = {}
 	};
 	const SharedConstants sharedData{

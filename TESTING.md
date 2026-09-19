@@ -68,11 +68,13 @@ Version 1.0.0 promotes the completed 0.8.32 rendering baseline to the first stab
 
 At low `Blur Quality`, very large blur discs can split into visible rings or points because the gather does not have enough sample density. Raise `Blur Quality` or reduce the near/far maximum blur when necessary.
 
-## Pending 1.0.1 HDR-path verification
+## Pending 1.0.1 Test 7A unified actor-protection verification
 
 - Capture SAO, SSR, and 64-bit HDR at plugin startup before Community Shaders can alter the live setting view; the first-frame log reports the current runtime values and the captured HDR value used only for the actor assist.
-- With Community Shaders and startup 64-bit HDR disabled, a valid tracked actor receives an effective near-focus floor of `max(saved value, 0.17 m)` without changing the saved INI, preset, or UI value.
-- The Community Shaders HDR-off path uses no screen-space subject mask, eliminating the mask boundary previously visible around the neck.
+- A valid tracked actor uses the same depth-confirmed projected guard with or without Community Shaders and with either 64-bit HDR setting.
+- The guard protects only pixels near the tracked visible-surface depth. The previous close-up head override that bypassed depth is absent on both near and far CoC paths.
+- With Community Shaders and startup 64-bit HDR disabled, a valid tracked actor additionally receives an effective near-focus floor of `max(saved value, 0.17 m)` without changing the saved INI, preset, or UI value.
 - Disabled SAO or SSR alone does not activate the 0.17 m floor, and non-actor targets do not receive it.
-- Community Shaders with startup 64-bit HDR enabled remains unchanged apart from the retained low-spec depth fallback.
-- The existing standalone behavior remains: SSR or HDR disabled enables the target guard, while HDR disabled also applies the 0.15 m near-focus floor.
+- Community Shaders with startup 64-bit HDR enabled uses the unified actor guard without the 0.17 m floor.
+- Standalone actors use the unified guard in every display configuration. Non-actor console targets retain the legacy SSR/HDR-disabled guard condition, while HDR disabled also applies the 0.15 m near-focus floor.
+- Verify close portraits at screen centre and near both screen edges, then compare `f/3.4` and `f/22`: face, torso, and hands should remain protected without a circular or band-shaped sharp region around the neck.
