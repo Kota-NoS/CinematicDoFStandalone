@@ -9,6 +9,7 @@ namespace CDoF
 	public:
 		static DoFRenderer& GetSingleton();
 
+		void CaptureStartupDisplaySettings();
 		void SetSettings(Settings a_settings);
 		void SetModeSettings(ModeSettings a_settings);
 		void SetTargetFocus(
@@ -29,6 +30,7 @@ namespace CDoF
 			bool guardValid{ false };
 			bool headGuardValid{ false };
 			bool surfaceFocusValid{ false };
+			bool actor{ false };
 		};
 
 		struct Texture
@@ -103,7 +105,7 @@ namespace CDoF
 			ID3D11ShaderResourceView* a_depth,
 			const Settings& a_settings,
 			const TargetFocusSample* a_lowSpecTargetGuard,
-			bool a_targetNearFocusAssist,
+			float a_targetNearFocusMinimumMeters,
 			std::uint32_t a_inputWidth,
 			std::uint32_t a_inputHeight,
 			std::uint32_t a_renderLeft,
@@ -137,9 +139,12 @@ namespace CDoF
 		bool loggedFirstFrame_{ false };
 		bool depthPathChecked_{ false };
 		bool useLowSpecDepthFallback_{ false };
-		bool useCommunityShadersTargetGuard_{ false };
 		bool useStandaloneTargetGuard_{ false };
-		bool useTargetNearFocusAssist_{ false };
+		bool useCommunityShadersActorNearFocusAssist_{ false };
+		bool useStandaloneNearFocusAssist_{ false };
+		std::optional<bool> startupSaoEnabled_;
+		std::optional<bool> startupReflectionsEnabled_;
+		std::optional<bool> startupHdr64Enabled_;
 		bool loggedDepthFallbackUnavailable_{ false };
 		bool loggedLowSpecTargetGuard_{ false };
 		bool loggedTargetNearFocusAssist_{ false };

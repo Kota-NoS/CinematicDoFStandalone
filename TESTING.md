@@ -67,3 +67,12 @@ Version 1.0.0 promotes the completed 0.8.32 rendering baseline to the first stab
 ## Known limitation
 
 At low `Blur Quality`, very large blur discs can split into visible rings or points because the gather does not have enough sample density. Raise `Blur Quality` or reduce the near/far maximum blur when necessary.
+
+## Pending 1.0.1 HDR-path verification
+
+- Capture SAO, SSR, and 64-bit HDR at plugin startup before Community Shaders can alter the live setting view; the first-frame log reports the current runtime values and the captured HDR value used only for the actor assist.
+- With Community Shaders and startup 64-bit HDR disabled, a valid tracked actor receives an effective near-focus floor of `max(saved value, 0.17 m)` without changing the saved INI, preset, or UI value.
+- The Community Shaders HDR-off path uses no screen-space subject mask, eliminating the mask boundary previously visible around the neck.
+- Disabled SAO or SSR alone does not activate the 0.17 m floor, and non-actor targets do not receive it.
+- Community Shaders with startup 64-bit HDR enabled remains unchanged apart from the retained low-spec depth fallback.
+- The existing standalone behavior remains: SSR or HDR disabled enables the target guard, while HDR disabled also applies the 0.15 m near-focus floor.

@@ -83,6 +83,7 @@ extern "C" __declspec(dllexport) bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadIn
 
 	try {
 		SKSE::Init(a_skse, false);
+		CDoF::DoFRenderer::GetSingleton().CaptureStartupDisplaySettings();
 		SKSE::AllocTrampoline(28);
 		const auto settings = CDoF::LoadSettings();
 		CDoF::DoFRenderer::GetSingleton().SetSettings(settings);

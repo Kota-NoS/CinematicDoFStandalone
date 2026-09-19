@@ -29,7 +29,9 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 
 ビルドはSkyrim SE／AEを対象とし、配布版はAE 1.6.1170と1.7.104で実ゲーム確認済みです。1.7.104ではAddress Library v5形式へ対応します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
 
-Community Shadersを使わない環境では、SSRまたは64-bit HDRが無効な場合に対象追従中の人物保護を有効にします。64-bit HDRが明示的に無効で、有効な追従対象がいるフレームに限り、保存値を変更せず手前ピント範囲の実効値を最低0.15 mにします。64-bit HDRとSSRが有効な通常環境では、これらの保護は無効です。Community Shaders使用時の既存深度フォールバック条件は変更していません。
+Community Shaders併用時は、ゲーム起動時に64-bit HDRが無効で、有効な人物追従対象がいるフレームに限り、保存値を変更せず手前ピント範囲の実効値を最低0.17 mにします。人物の周囲を覆う画面マスクは使用しないため、首周りに保護境界が残ることはありません。SAOまたはSSRだけを無効にしても0.17 m補正は有効にならず、非人物の追従対象にも適用されません。既存のCommunity Shaders深度フォールバック条件は維持します。
+
+Community Shadersを使わない環境では、SSRまたは64-bit HDRが無効な場合に対象追従中の人物保護を有効にします。64-bit HDRが明示的に無効で、有効な追従対象がいるフレームに限り、保存値を変更せず手前ピント範囲の実効値を最低0.15 mにします。64-bit HDRとSSRが有効な通常環境では、これらの保護は無効です。
 
 ### インストール
 
@@ -118,7 +120,9 @@ CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a
 
 The build targets Skyrim SE and AE, and the distributed build was tested in game on AE 1.6.1170 and 1.7.104. Version 1.7.104 uses the Address Library v5 database format supported by this release. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
 
-Without Community Shaders, target-tracking subject protection activates when SSR or 64-bit HDR is disabled. When 64-bit HDR is explicitly disabled and a valid tracked target exists, the effective near-focus range is floored at 0.15 m without changing the saved value. Both protections are disabled in a normal standalone configuration with 64-bit HDR and SSR enabled. The established Community Shaders depth-fallback conditions are unchanged.
+With Community Shaders, when 64-bit HDR was disabled at game startup and a valid tracked actor exists, the effective near-focus range is floored at 0.17 m without changing the saved value. No screen-space subject mask is used, so this path cannot leave a protection boundary around the neck. Disabling only SAO or SSR does not activate the 0.17 m assist, and non-actor targets do not receive it. The established Community Shaders depth-fallback conditions are retained.
+
+Without Community Shaders, target-tracking subject protection activates when SSR or 64-bit HDR is disabled. When 64-bit HDR is explicitly disabled and a valid tracked target exists, the effective near-focus range is floored at 0.15 m without changing the saved value. Both protections are disabled in a normal standalone configuration with 64-bit HDR and SSR enabled.
 
 ### Installation
 

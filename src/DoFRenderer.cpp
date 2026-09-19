@@ -123,6 +123,11 @@ namespace
 		return std::nullopt;
 	}
 
+	const char* DescribeDisplayBool(const std::optional<bool>& a_value)
+	{
+		return a_value ? (*a_value ? "on" : "off") : "unknown";
+	}
+
 	std::optional<D3D11_TEXTURE2D_DESC> GetTextureDescription(ID3D11View* a_view)
 	{
 		if (!a_view) {
@@ -175,7 +180,8 @@ namespace
 	};
 
 	constexpr float kGameUnitToMeters = 0.01428F;
-	constexpr float kTargetNearFocusMinimumMeters = 0.20F;
+	constexpr float kCommunityShadersActorNearFocusMinimumMeters = 0.17F;
+	constexpr float kStandaloneNearFocusMinimumMeters = 0.15F;
 
 	RE::NiCamera* FindActiveNiCamera(RE::NiAVObject* a_object)
 	{
@@ -214,6 +220,19 @@ CDoF::DoFRenderer& CDoF::DoFRenderer::GetSingleton()
 {
 	static DoFRenderer singleton;
 	return singleton;
+}
+
+void CDoF::DoFRenderer::CaptureStartupDisplaySettings()
+{
+	std::scoped_lock lock(mutex_);
+	startupSaoEnabled_ = ReadDisplayBool("bSAOEnable:Display");
+	startupReflectionsEnabled_ = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
+	startupHdr64Enabled_ = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
+	spdlog::info(
+		"Startup display settings captured before post-load: SAO={}, SSR={}, 64-bit HDR={}",
+		DescribeDisplayBool(startupSaoEnabled_),
+		DescribeDisplayBool(startupReflectionsEnabled_),
+		DescribeDisplayBool(startupHdr64Enabled_));
 }
 
 void CDoF::DoFRenderer::SetSettings(Settings a_settings)
@@ -534,6 +553,7 @@ std::optional<CDoF::DoFRenderer::TargetFocusSample> CDoF::DoFRenderer::GetTarget
 		return std::nullopt;
 	}
 	TargetFocusSample result{};
+	result.actor = a_target->GetFormType() == RE::FormType::ActorCharacter;
 	result.distanceMeters = std::clamp(distanceMeters, 0.1F, 150.0F);
 	const auto shaderScreenY = 1.0F - screenY;
 	result.focusCoordinate = { screenX, shaderScreenY };
@@ -555,7 +575,7 @@ std::optional<CDoF::DoFRenderer::TargetFocusSample> CDoF::DoFRenderer::GetTarget
 		return std::array{ x, 1.0F - y };
 	};
 
-	if (a_target->GetFormType() == RE::FormType::ActorCharacter) {
+	if (result.actor) {
 		// The head position is already the focus anchor.  Project a small sphere
 		// around it so the screen-space guard grows naturally during close-ups and
 		// shrinks with distance, independently of standing, crouching, or lying poses.
@@ -790,44 +810,50 @@ void CDoF::DoFRenderer::Apply()
 		mainTarget.texture->GetDesc(&inputDescription);
 		const auto renderArea = GetActiveRenderArea(context, inputDescription);
 		if (!depthPathChecked_) {
-			const auto saoEnabled = ReadDisplayBool("bSAOEnable:Display");
-			const auto reflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
-			const auto hdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
+			const auto runtimeSaoEnabled = ReadDisplayBool("bSAOEnable:Display");
+			const auto runtimeReflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
+			const auto runtimeHdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
+			const auto startupHdr64ForActorAssist =
+				startupHdr64Enabled_ ? startupHdr64Enabled_ : runtimeHdr64Enabled;
 			const auto communityShadersLoaded =
 				GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
 			const auto actualHdr64Target =
 				inputDescription.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
 			const auto lowSpecDepthSettings =
-				(saoEnabled && !*saoEnabled) ||
-				(reflectionsEnabled && !*reflectionsEnabled) ||
-				(hdr64Enabled && !*hdr64Enabled);
+				(runtimeSaoEnabled && !*runtimeSaoEnabled) ||
+				(runtimeReflectionsEnabled && !*runtimeReflectionsEnabled) ||
+				(runtimeHdr64Enabled && !*runtimeHdr64Enabled);
 			// The actual target format remains useful diagnostics, but Community Shaders
 			// normally supplies its own non-64-bit target even when the game setting is on.
 			// Do not treat that normal format as a reason to enable a visible subject mask.
-			const auto hdrTargetGuardSetting =
-				hdr64Enabled && !*hdr64Enabled;
-			const auto targetNearFocusAssistSetting =
-				(reflectionsEnabled && !*reflectionsEnabled) ||
-				(hdr64Enabled && !*hdr64Enabled);
+			const auto standaloneHdrTargetGuardSetting =
+				runtimeHdr64Enabled && !*runtimeHdr64Enabled;
+			const auto communityShadersActorNearFocusSetting =
+				startupHdr64ForActorAssist && !*startupHdr64ForActorAssist;
+			const auto standaloneTargetGuardSetting =
+				(runtimeReflectionsEnabled && !*runtimeReflectionsEnabled) ||
+				standaloneHdrTargetGuardSetting;
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
-			useCommunityShadersTargetGuard_ =
-				communityShadersLoaded && hdrTargetGuardSetting;
 			useStandaloneTargetGuard_ =
-				!communityShadersLoaded && hdrTargetGuardSetting;
-			useTargetNearFocusAssist_ = targetNearFocusAssistSetting;
+				!communityShadersLoaded && standaloneTargetGuardSetting;
+			useCommunityShadersActorNearFocusAssist_ =
+				communityShadersLoaded && communityShadersActorNearFocusSetting;
+			useStandaloneNearFocusAssist_ =
+				!communityShadersLoaded && standaloneHdrTargetGuardSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings: SAO={}, SSR={}, 64-bit HDR setting={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; Community Shaders target guard={}; standalone target guard={}; target near-focus assist={}",
-				saoEnabled ? (*saoEnabled ? "on" : "off") : "unknown",
-				reflectionsEnabled ? (*reflectionsEnabled ? "on" : "off") : "unknown",
-				hdr64Enabled ? (*hdr64Enabled ? "on" : "off") : "unknown",
+				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; startup 64-bit HDR used for Community Shaders actor assist={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; Community Shaders subject mask=disabled; standalone target guard={}; Community Shaders HDR-off actor near-focus assist={}; standalone HDR-off near-focus assist={}",
+				DescribeDisplayBool(runtimeSaoEnabled),
+				DescribeDisplayBool(runtimeReflectionsEnabled),
+				DescribeDisplayBool(runtimeHdr64Enabled),
+				DescribeDisplayBool(startupHdr64ForActorAssist),
 				static_cast<std::uint32_t>(inputDescription.Format),
 				actualHdr64Target ? "yes" : "no",
 				communityShadersLoaded ? "loaded" : "not loaded",
 				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard",
-				useCommunityShadersTargetGuard_ ? "enabled" : "disabled",
 				useStandaloneTargetGuard_ ? "enabled" : "disabled",
-				useTargetNearFocusAssist_ ? "enabled" : "disabled");
+				useCommunityShadersActorNearFocusAssist_ ? "enabled" : "disabled",
+				useStandaloneNearFocusAssist_ ? "enabled" : "disabled");
 			if (lowSpecDepthSettings && !communityShadersLoaded) {
 				spdlog::warn(
 					"Low-spec depth settings were detected, but Community Shaders was not loaded; preserving the standard depth path");
@@ -905,28 +931,37 @@ void CDoF::DoFRenderer::Apply()
 		ID3D11RenderTargetView* restoreRTV = currentRTV.Get();
 		OutputMergerRestore restore{ context, restoreRTV, currentDSV.Get() };
 		context->OMSetRenderTargets(0, nullptr, nullptr);
-		const auto targetGuardEnabled =
-			useCommunityShadersTargetGuard_ || useStandaloneTargetGuard_;
-		const auto* validTargetFocus = activeTargetFocus && activeTargetFocus->guardValid ?
+		const auto* validTargetFocus = activeTargetFocus ?
 			std::addressof(*activeTargetFocus) : nullptr;
-		const auto* lowSpecTargetGuard = targetGuardEnabled ? validTargetFocus : nullptr;
-		const auto targetNearFocusAssist = useTargetNearFocusAssist_ && validTargetFocus;
+		const auto* lowSpecTargetGuard =
+			useStandaloneTargetGuard_ && validTargetFocus && validTargetFocus->guardValid ?
+				validTargetFocus : nullptr;
+		float targetNearFocusMinimumMeters{};
+		const char* targetNearFocusAssistName = nullptr;
+		if (validTargetFocus && validTargetFocus->actor && useCommunityShadersActorNearFocusAssist_) {
+			targetNearFocusMinimumMeters = kCommunityShadersActorNearFocusMinimumMeters;
+			targetNearFocusAssistName = "Community Shaders HDR-off actor";
+		} else if (validTargetFocus && useStandaloneNearFocusAssist_) {
+			targetNearFocusMinimumMeters = kStandaloneNearFocusMinimumMeters;
+			targetNearFocusAssistName = "Standalone HDR-off";
+		}
 		if (lowSpecTargetGuard && !loggedLowSpecTargetGuard_) {
 			loggedLowSpecTargetGuard_ = true;
 			spdlog::info(
-				"{} target near-blur protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
-				useStandaloneTargetGuard_ ? "Standalone" : "Community Shaders",
+				"Standalone target near-blur protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
 				lowSpecTargetGuard->guardCenter[0], lowSpecTargetGuard->guardCenter[1],
 				lowSpecTargetGuard->guardRadius[0], lowSpecTargetGuard->guardRadius[1],
 				lowSpecTargetGuard->headGuardCenter[0], lowSpecTargetGuard->headGuardCenter[1],
 				lowSpecTargetGuard->headGuardValid ? lowSpecTargetGuard->headGuardRadius : 0.0F);
 		}
-		if (targetNearFocusAssist && !loggedTargetNearFocusAssist_) {
+		if (targetNearFocusMinimumMeters > 0.0F && !loggedTargetNearFocusAssist_) {
 			loggedTargetNearFocusAssist_ = true;
 			spdlog::info(
-				"Target near-focus assist activated (saved {:.2f} m; effective {:.2f} m)",
+				"{} near-focus assist activated (saved {:.2f} m; minimum {:.2f} m; effective {:.2f} m)",
+				targetNearFocusAssistName,
 				effectiveSettings.nearFocusRangeMeters,
-				std::max(effectiveSettings.nearFocusRangeMeters, kTargetNearFocusMinimumMeters));
+				targetNearFocusMinimumMeters,
+				std::max(effectiveSettings.nearFocusRangeMeters, targetNearFocusMinimumMeters));
 		}
 		Dispatch(
 			context,
@@ -934,7 +969,7 @@ void CDoF::DoFRenderer::Apply()
 			depth,
 			effectiveSettings,
 			lowSpecTargetGuard,
-			targetNearFocusAssist,
+			targetNearFocusMinimumMeters,
 			inputDescription.Width,
 			inputDescription.Height,
 			renderArea.left,
@@ -975,15 +1010,15 @@ void CDoF::DoFRenderer::Dispatch(
 	ID3D11ShaderResourceView* a_depth,
 	const Settings& a_settings,
 	const TargetFocusSample* a_lowSpecTargetGuard,
-	bool a_targetNearFocusAssist,
+	float a_targetNearFocusMinimumMeters,
 	std::uint32_t a_inputWidth,
 	std::uint32_t a_inputHeight,
 	std::uint32_t a_renderLeft,
 	std::uint32_t a_renderTop)
 {
 	const auto effectiveNearFocusRangeMeters =
-		a_targetNearFocusAssist ?
-			std::max(a_settings.nearFocusRangeMeters, kTargetNearFocusMinimumMeters) :
+		a_targetNearFocusMinimumMeters > 0.0F ?
+			std::max(a_settings.nearFocusRangeMeters, a_targetNearFocusMinimumMeters) :
 			a_settings.nearFocusRangeMeters;
 	const DoFConstants dofData{
 		.transitionSpeed = resources_.focusInitialized ? a_settings.transitionSpeed : 1.0F,
