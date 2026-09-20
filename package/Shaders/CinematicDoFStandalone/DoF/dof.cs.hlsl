@@ -268,6 +268,44 @@ float GetSkyClearDepthMask(uint2 renderPixel)
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
 
+float GetSkyRingSafety(uint2 renderPixel, int radius)
+{
+	int2 pixel = int2(renderPixel);
+	float clearCount = 0.0f;
+	clearCount += GetSkyClearDepthMask(ClampFullResolutionPixel(pixel + int2(radius, 0)));
+	clearCount += GetSkyClearDepthMask(ClampFullResolutionPixel(pixel + int2(-radius, 0)));
+	clearCount += GetSkyClearDepthMask(ClampFullResolutionPixel(pixel + int2(0, radius)));
+	clearCount += GetSkyClearDepthMask(ClampFullResolutionPixel(pixel + int2(0, -radius)));
+
+	// A ring is considered safe only when all four cardinal samples remain sky.
+	// Combining several radii below produces a stepped feather without allocating
+	// or filtering a separate mask texture.
+	return smoothstep(0.75f, 1.0f, clearCount * 0.25f);
+}
+
+float GetSkyInteriorProtection(uint2 renderPixel)
+{
+	float centre = GetSkyClearDepthMask(renderPixel);
+	if (centre < 0.5f)
+		return 0.0f;
+
+	float resolutionScale = max(SharedData::BufferDim.y / 1440.0f, 0.5f);
+	float farBlurRadiusInPixels = (max(FarPlaneMaxBlur, 0.0f) * 0.01f) * invBlurPixelSizeLength;
+	int nearRadius = max(1, (int)round(resolutionScale));
+	int farRadius = max(
+		nearRadius + 2,
+		(int)round(clamp(farBlurRadiusInPixels * 0.20f, 4.0f * resolutionScale, 12.0f * resolutionScale)));
+	int middleRadius = max(nearRadius + 1, (int)round(lerp((float)nearRadius, (float)farRadius, 0.45f)));
+
+	float nearSafety = GetSkyRingSafety(renderPixel, nearRadius);
+	float middleSafety = GetSkyRingSafety(renderPixel, middleRadius);
+	float farSafety = GetSkyRingSafety(renderPixel, farRadius);
+
+	// Keep the normal DoF result at the silhouette, then restore progressively
+	// more of the source sky as the pixel moves away from depth-writing geometry.
+	return centre * (0.25f * nearSafety + 0.35f * middleSafety + 0.40f * farSafety);
+}
+
 float GetBodyTargetGuard(float2 uv)
 {
 	if (!TargetGuardEnabled)
@@ -494,6 +532,23 @@ float CalculateBlurDiscSize(FocusInfo focusInfo)
 	return signedFocusDistance < 0.0f ? -toReturn : toReturn;
 }
 
+float RecoverSkyInteriorProtection(uint2 renderPixel, float2 uv, float protectedCoC)
+{
+	if (GetSkyClearDepthMask(renderPixel) < 0.5f)
+		return 0.0f;
+
+	FocusInfo focusInfo;
+	focusInfo.texcoord = uv;
+	FillFocusInfoData(focusInfo);
+	float unprotectedCoC = abs(CalculateBlurDiscSize(focusInfo));
+	if (unprotectedCoC <= 1e-6f)
+		return 1.0f;
+
+	// CS_CalculateCoC stores CoC * (1 - protection). Recover that protection
+	// here instead of repeating the twelve neighbouring depth reads.
+	return saturate(1.0f - abs(protectedCoC) / unprotectedCoC);
+}
+
 float GetBlurDiscRadiusFromSource(Texture2D<float> source, float2 texcoord, bool flattenToZero, float2 sourceTexelSize)
 {
 	float coc = source.SampleLevel(LinearSampler, ClampToTexelCentres(texcoord, sourceTexelSize), 0).x;
@@ -710,10 +765,11 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	FillFocusInfoData(focusInfo);
 
 	float coc = CalculateBlurDiscSize(focusInfo);
-	// Keep clear-depth sky pixels completely outside every blur stage.  The final
-	// combiner also restores their original colour, while depth-writing water,
-	// terrain, distant islands, and other geometry retain the normal DoF path.
-	coc = lerp(coc, 0.0f, GetSkyClearDepthMask(DTid));
+	// Keep only the interior of the clear-depth sky outside the blur. Pixels close
+	// to depth-writing geometry retain progressively more of the normal CoC so the
+	// boundary does not become a hard cut-out.
+	float skyProtection = GetSkyInteriorProtection(DTid);
+	coc = lerp(coc, 0.0f, skyProtection);
 	// Use one depth-confirmed subject guard on both sides of the focus plane.  The
 	// previous close-up head exception ignored depth and could expose its projected
 	// circle around the neck or near a screen edge.
@@ -1037,15 +1093,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 
 	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
 	// first blend far plane with original buffer, then near plane on top of that.
-	float4 originalFragment = TexColor[GetInputPixel(DTid)];
-	// Restore the unblurred source only for untouched clear-depth pixels.  This is
-	// intentionally exact: water and distant geometry remain on the existing DoF
-	// path, making shoreline and horizon behaviour visible in this experiment.
-	if (GetSkyClearDepthMask(DTid) > 0.5f)
-	{
-		RWTexOut[DTid] = float4(originalFragment.rgb, 1.0f);
-		return;
-	}
+	float4 sourceFragment = TexColor[GetInputPixel(DTid)];
+	float4 originalFragment = sourceFragment;
 	originalFragment.rgb = AccentuateWhites(originalFragment.rgb);
 	float2 halfResolutionUV = ClampHalfResolutionUV(uv);
 	float4 farFragment = TexFarBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
@@ -1062,6 +1111,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	float nearBlurProtection = max(GetTargetDepthProtection(uv), GetFocusRangeProtection(uv));
 	nearBlend *= 1.0f - nearBlurProtection;
 	color.rgb = lerp(color.rgb, nearFragment.rgb, nearBlend);
+	float skyProtection = RecoverSkyInteriorProtection(DTid, uv, pixelCoC);
+	color.rgb = lerp(color.rgb, sourceFragment.rgb, skyProtection);
 	color.a = 1.0;
 	RWTexOut[DTid] = color;
 }
