@@ -102,6 +102,7 @@ namespace CDoF
 			ID3D11DeviceContext* a_context,
 			ID3D11ShaderResourceView* a_color,
 			ID3D11ShaderResourceView* a_depth,
+			ID3D11ShaderResourceView* a_skyMaskDepth,
 			const Settings& a_settings,
 			const TargetFocusSample* a_targetGuard,
 			float a_targetNearFocusMinimumMeters,

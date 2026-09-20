@@ -132,6 +132,7 @@ Texture2D<float4> TexPostSmoothInput : register(t7);
 Texture2D<float4> TexFarGatherColor1 : register(t8);
 Texture2D<float4> TexFarGatherColor2 : register(t9);
 Texture2D<float4> TexFarGatherColor3 : register(t10);
+Texture2D<float> SkyMaskDepthTexture : register(t11);
 
 cbuffer DoFCB : register(b1)
 {
@@ -264,7 +265,7 @@ float GetSkyClearDepthMask(uint2 renderPixel)
 	// a value below 1.0, while pixels left untouched by world geometry (normally
 	// the sky) retain the clear value. Read the source texel directly so sampler
 	// filtering cannot create a false boundary classification.
-	float rawDepth = DepthTexture[GetInputPixel(renderPixel)];
+	float rawDepth = SkyMaskDepthTexture[GetInputPixel(renderPixel)];
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
 

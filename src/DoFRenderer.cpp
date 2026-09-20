@@ -788,8 +788,9 @@ void CDoF::DoFRenderer::Apply()
 		context->OMGetRenderTargets(1, currentRTV.GetAddressOf(), currentDSV.GetAddressOf());
 
 		auto& depthStencils = renderer->GetDepthStencilData().depthStencils;
-		auto depth = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV;
-		if (!mainTarget.texture || !mainTarget.SRV || !depth) {
+		auto mainDepth = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV;
+		auto depth = mainDepth;
+		if (!mainTarget.texture || !mainTarget.SRV || !mainDepth) {
 			return;
 		}
 
@@ -959,6 +960,7 @@ void CDoF::DoFRenderer::Apply()
 			context,
 			mainTarget.SRV,
 			depth,
+			mainDepth,
 			effectiveSettings,
 			targetGuard,
 			targetNearFocusMinimumMeters,
@@ -1000,6 +1002,7 @@ void CDoF::DoFRenderer::Dispatch(
 	ID3D11DeviceContext* a_context,
 	ID3D11ShaderResourceView* a_color,
 	ID3D11ShaderResourceView* a_depth,
+	ID3D11ShaderResourceView* a_skyMaskDepth,
 	const Settings& a_settings,
 	const TargetFocusSample* a_targetGuard,
 	float a_targetNearFocusMinimumMeters,
@@ -1075,7 +1078,7 @@ void CDoF::DoFRenderer::Dispatch(
 	a_context->CSSetConstantBuffers(5, 1, &sharedCB);
 	a_context->CSSetSamplers(0, 1, &sampler);
 
-	std::array<ID3D11ShaderResourceView*, 11> srvs{};
+	std::array<ID3D11ShaderResourceView*, 12> srvs{};
 	std::array<ID3D11UnorderedAccessView*, 3> uavs{};
 	const auto resetViews = [&]() {
 		srvs.fill(nullptr);
@@ -1123,6 +1126,11 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[0] = a_color;
 	srvs[1] = resources_.previousFocus.srv.Get();
 	srvs[2] = a_depth;
+	// Keep autofocus and all ordinary DoF calculations on the selected depth
+	// path, but classify sky from the current main depth. Community Shaders'
+	// low-spec fallback is copied before water renders, so using it for both
+	// purposes incorrectly classifies distant water as clear sky.
+	srvs[11] = a_skyMaskDepth;
 	uavs[2] = resources_.coc.uav.Get();
 	bindAndDispatch(shaders_.calculateCoC.Get(), fullWidth, fullHeight);
 	resetViews();
@@ -1208,6 +1216,7 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[5] = resources_.blurredFiltered.srv.Get();
 	srvs[6] = resources_.nearBlurred.srv.Get();
+	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.postSmooth.uav.Get();
 	bindAndDispatch(shaders_.combiner.Get(), fullWidth, fullHeight);
 	resetViews();
