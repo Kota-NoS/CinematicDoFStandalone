@@ -1191,12 +1191,17 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[2] = a_depth;
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[4] = resources_.cocBlur2.srv.Get();
+	// Keep ordinary far-blur sampling unchanged, but expose the existing main
+	// depth so the shader can reject clear-sky samples from highlight extraction.
+	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.farBlurred.uav.Get();
 	bindAndDispatch(shaders_.farBlur.Get(), halfWidth, halfHeight);
 	resetViews();
 	srvs[0] = resources_.farBlurred.srv.Get();
 	srvs[3] = resources_.cocTileNeighbor.srv.Get();
 	srvs[4] = resources_.cocBlur2.srv.Get();
+	// Near highlights use the same sky classification as the far gather.
+	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.nearBlurred.uav.Get();
 	bindAndDispatch(shaders_.nearBlur.Get(), halfWidth, halfHeight);
 	resetViews();

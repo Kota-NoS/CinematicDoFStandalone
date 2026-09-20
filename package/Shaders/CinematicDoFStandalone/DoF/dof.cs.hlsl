@@ -269,6 +269,20 @@ float GetSkyClearDepthMask(uint2 renderPixel)
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
 
+float GetSkyHighlightEligibility(float2 renderUV)
+{
+	if (KeepSkySharp == 0)
+		return 1.0f;
+
+	// Highlight extraction operates on the same render-space coordinates as the
+	// blur gather. Classify the corresponding full-resolution source texel with
+	// the unfiltered main depth so clear sky cannot become a bright bokeh source.
+	// The ordinary gather weight is intentionally left untouched below.
+	float2 clampedUV = ClampFullResolutionUV(renderUV);
+	uint2 renderPixel = ClampFullResolutionPixel(int2(clampedUV * SharedData::BufferDim.xy));
+	return 1.0f - GetSkyClearDepthMask(renderPixel);
+}
+
 float GetSkyRingSafety(uint2 renderPixel, int radius)
 {
 	int2 pixel = int2(renderPixel);
@@ -958,6 +972,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			if (weight > 0) {
 				tap = SampleFarGatherColor(halfResolutionTap, gatherMip);
 				float apertureHighlightWeight = CalculateApertureHighlightWeight(tap.rgb, normalizedRingRadius, colorRadius);
+				if (apertureHighlightWeight > 0.0f)
+					apertureHighlightWeight *= GetSkyHighlightEligibility(fullResolutionTap);
 				float weightedHighlight = apertureHighlightWeight * weight;
 				apertureHighlightSum += tap.rgb * weightedHighlight;
 				apertureHighlightWeightSum += weightedHighlight;
@@ -1012,6 +1028,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	// only inspected the concentric rings, so a small highlight at the centre of
 	// its own blur could be weaker than the outline surrounding it.
 	float centerApertureHighlightWeight = CalculateNearApertureHighlightWeight(color.rgb, colorRadiusToUse);
+	if (centerApertureHighlightWeight > 0.0f)
+		centerApertureHighlightWeight *= GetSkyHighlightEligibility(blurInfo.texcoord);
 	float3 apertureHighlightSum = color.rgb * centerApertureHighlightWeight;
 	float apertureHighlightWeightSum = centerApertureHighlightWeight;
 	// Keep a second mean from the aperture perimeter. It reintroduces a small
@@ -1040,6 +1058,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			float2 halfResolutionTap = ClampHalfResolutionUV(tapCoords);
 			float4 tap = TexColor.SampleLevel(LinearSampler, halfResolutionTap, 0);
 			float apertureHighlightWeight = CalculateNearApertureHighlightWeight(tap.rgb, colorRadiusToUse);
+			if (apertureHighlightWeight > 0.0f)
+				apertureHighlightWeight *= GetSkyHighlightEligibility(fullResolutionTap);
 			float weightedHighlight = apertureHighlightWeight * weight;
 			apertureHighlightSum += tap.rgb * weightedHighlight;
 			apertureHighlightWeightSum += weightedHighlight;
