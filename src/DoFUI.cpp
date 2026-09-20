@@ -462,6 +462,7 @@ namespace
 			a_left.autoFocus == a_right.autoFocus &&
 			a_left.disableInMenus == a_right.disableInMenus &&
 			a_left.enableFirstPersonNearBlur == a_right.enableFirstPersonNearBlur &&
+			a_left.keepSkySharp == a_right.keepSkySharp &&
 			a_left.apertureBokeh == a_right.apertureBokeh &&
 			a_left.apertureBlades == a_right.apertureBlades &&
 			NearlyEqual(a_left.transitionSpeed, a_right.transitionSpeed) &&
@@ -952,6 +953,13 @@ namespace
 				showAdvanced ? "詳細設定を隠す" : "詳細設定を表示"))) {
 			showAdvanced = !showAdvanced;
 		}
+		MenuFramework::SameLine();
+		changed |= CheckboxWithHelp(
+			"Keep Sky Sharp",
+			"空をぼかさない",
+			&uiSettings.keepSkySharp,
+			"Excludes clear-depth sky pixels from DoF while preserving a soft boundary around geometry. Moons and other sky objects that write depth can still be blurred.",
+			"深度が未描画の空をDoFから除外し、地形との境界は滑らかに保ちます。月など深度を書き込む天体はぼける場合があります。");
 		if (showAdvanced) {
 			MenuFramework::SeparatorText(Localized("Bokeh and Quality", "画質・ボケの詳細"));
 			changed |= CheckboxWithHelp(

@@ -163,7 +163,7 @@ cbuffer DoFCB : register(b1)
 	float ApertureRoundness;
 	float2 HeadGuardCenter;
 	float HeadGuardRadius;
-	uint pad3;
+	uint KeepSkySharp;
 	float2 TargetGuardAxis;
 	uint2 pad4;
 };
@@ -286,6 +286,9 @@ float GetSkyRingSafety(uint2 renderPixel, int radius)
 
 float GetSkyInteriorProtection(uint2 renderPixel)
 {
+	if (KeepSkySharp == 0)
+		return 0.0f;
+
 	float centre = GetSkyClearDepthMask(renderPixel);
 	if (centre < 0.5f)
 		return 0.0f;
@@ -535,6 +538,9 @@ float CalculateBlurDiscSize(FocusInfo focusInfo)
 
 float RecoverSkyInteriorProtection(uint2 renderPixel, float2 uv, float protectedCoC)
 {
+	if (KeepSkySharp == 0)
+		return 0.0f;
+
 	if (GetSkyClearDepthMask(renderPixel) < 0.5f)
 		return 0.0f;
 

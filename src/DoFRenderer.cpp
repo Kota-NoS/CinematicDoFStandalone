@@ -39,7 +39,7 @@ namespace
 		float apertureRoundness;
 		Float2 headGuardCenter;
 		float headGuardRadius;
-		std::uint32_t padding3;
+		std::uint32_t keepSkySharp;
 		Float2 targetGuardAxis;
 		std::uint32_t padding4[2];
 	};
@@ -1047,7 +1047,7 @@ void CDoF::DoFRenderer::Dispatch(
 			Float2{ a_targetGuard->headGuardCenter[0], a_targetGuard->headGuardCenter[1] } : Float2{ 0.5F, 0.5F },
 		.headGuardRadius = a_targetGuard && a_targetGuard->headGuardValid ?
 			a_targetGuard->headGuardRadius : 0.0F,
-		.padding3 = 0U,
+		.keepSkySharp = a_settings.keepSkySharp ? 1U : 0U,
 		.targetGuardAxis = a_targetGuard ?
 			Float2{ a_targetGuard->guardAxis[0], a_targetGuard->guardAxis[1] } : Float2{},
 		.padding4 = {}
