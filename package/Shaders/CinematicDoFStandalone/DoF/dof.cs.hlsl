@@ -260,10 +260,10 @@ float GetDepth(float2 uv)
 
 float GetSkyClearDepthMask(uint2 renderPixel)
 {
-	// Diagnostic only: Skyrim clears the conventional depth buffer to exactly
-	// 1.0. Geometry writes a value below 1.0, while pixels left untouched by
-	// world geometry (normally the sky) retain the clear value. Read the source
-	// texel directly so sampler filtering cannot create a false grey boundary.
+	// Skyrim clears the conventional depth buffer to exactly 1.0. Geometry writes
+	// a value below 1.0, while pixels left untouched by world geometry (normally
+	// the sky) retain the clear value. Read the source texel directly so sampler
+	// filtering cannot create a false boundary classification.
 	float rawDepth = DepthTexture[GetInputPixel(renderPixel)];
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
@@ -710,6 +710,10 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	FillFocusInfoData(focusInfo);
 
 	float coc = CalculateBlurDiscSize(focusInfo);
+	// Keep clear-depth sky pixels completely outside every blur stage.  The final
+	// combiner also restores their original colour, while depth-writing water,
+	// terrain, distant islands, and other geometry retain the normal DoF path.
+	coc = lerp(coc, 0.0f, GetSkyClearDepthMask(DTid));
 	// Use one depth-confirmed subject guard on both sides of the focus plane.  The
 	// previous close-up head exception ignored depth and could expose its projected
 	// circle around the neck or near a screen edge.
@@ -1031,17 +1035,44 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	float skyMask = GetSkyClearDepthMask(DTid);
-	RWTexOut[DTid] = float4(skyMask, skyMask, skyMask, 1.0f);
+	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
+	// first blend far plane with original buffer, then near plane on top of that.
+	float4 originalFragment = TexColor[GetInputPixel(DTid)];
+	// Restore the unblurred source only for untouched clear-depth pixels.  This is
+	// intentionally exact: water and distant geometry remain on the existing DoF
+	// path, making shoreline and horizon behaviour visible in this experiment.
+	if (GetSkyClearDepthMask(DTid) > 0.5f)
+	{
+		RWTexOut[DTid] = float4(originalFragment.rgb, 1.0f);
+		return;
+	}
+	originalFragment.rgb = AccentuateWhites(originalFragment.rgb);
+	float2 halfResolutionUV = ClampHalfResolutionUV(uv);
+	float4 farFragment = TexFarBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
+	float4 nearFragment = TexNearBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
+	float pixelCoC = TexCoCInput[DTid].r;
+	// multiply with far plane max blur so if we need to have 0 blur we get full res
+	float realCoC = pixelCoC * saturate(FarPlaneMaxBlur);
+	// all CoC's > 0.1 are full far fragment, below that, we're going to blend. This avoids shimmering far plane without the need of a
+	// 'magic' number to boost up the alpha.
+	float blendFactor = (realCoC > 0.1) ? 1 : smoothstep(0, 1, (realCoC / 0.1));
+	float4 color;
+	color = lerp(originalFragment, farFragment, blendFactor);
+	float nearBlend = nearFragment.a * (NearPlaneMaxBlur != 0);
+	float nearBlurProtection = max(GetTargetDepthProtection(uv), GetFocusRangeProtection(uv));
+	nearBlend *= 1.0f - nearBlurProtection;
+	color.rgb = lerp(color.rgb, nearFragment.rgb, nearBlend);
+	color.a = 1.0;
+	RWTexOut[DTid] = color;
 }
 
 [numthreads(8, 8, 1)] void CS_PostSmoothing1(uint2 DTid : SV_DispatchThreadID) {
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	// Preserve the binary diagnostic mask exactly; the normal post-smoothing
-	// stage would otherwise turn silhouette boundaries grey.
-	RWTexOut[DTid] = TexColor[DTid];
+	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
+
+	RWTexOut[DTid] = PerformFullFragmentGaussianBlur(TexColor, uv, DTid, float2((SharedData::BufferDim.z), 0.0));
 }
 
 	[numthreads(8, 8, 1)] void CS_PostSmoothing2AndFocusing(uint2 DTid : SV_DispatchThreadID)
@@ -1049,5 +1080,13 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	RWTexOut[DTid] = TexColor[DTid];
+	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
+
+	float4 color = PerformFullFragmentGaussianBlur(TexPostSmoothInput, uv, DTid, float2(0.0, (SharedData::BufferDim.w)));
+	float4 originalColor = TexColor[GetInputPixel(DTid)];
+
+	float coc = abs(TexCoCInput[DTid].r);
+	color.rgb = lerp(originalColor.rgb, color.rgb, saturate(coc < length(SharedData::BufferDim.zw) ? 0 : 4 * coc));
+
+	RWTexOut[DTid] = float4(color.rgb, 1.0f);
 }
