@@ -255,7 +255,15 @@ bool CDoF::SaveSettings(const Settings& a_settings)
 
 CDoF::Settings CDoF::LoadPresetSettings(const wchar_t* a_section, Settings a_defaults)
 {
-	return SectionExists(a_section) ? LoadSection(a_section, a_defaults) : a_defaults;
+	if (!SectionExists(a_section)) {
+		return a_defaults;
+	}
+
+	// Presets saved before KeepSkySharp existed must retain their original sky
+	// blur. New built-in presets can still opt in by setting their own default,
+	// while an explicitly stored KeepSkySharp value continues to win here.
+	a_defaults.keepSkySharp = false;
+	return LoadSection(a_section, a_defaults);
 }
 
 bool CDoF::SavePresetSettings(const wchar_t* a_section, const Settings& a_settings)

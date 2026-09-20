@@ -28,7 +28,7 @@ namespace CDoF
 		float farPlaneMaxBlur{ 1.91F };
 		float nearPlaneMaxBlur{ 0.0F };
 		bool enableFirstPersonNearBlur{ false };
-		bool keepSkySharp{ true };
+		bool keepSkySharp{ false };
 		float blurQuality{ 5.0F };
 		float nearFarDistanceCompensation{ 3.98F };
 		float bokehBusyFactor{ 0.25F };

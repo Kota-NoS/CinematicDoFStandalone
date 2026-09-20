@@ -60,7 +60,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 - レンズ調整：焦点距離で前後の分離を大まかに決め、F値でピント範囲を整え、最後に手前／奥最大ぼかしで強さを決めると扱いやすくなります。
 - DoFホットキー：「DoFを有効にする」の右側にあるホットキーボタンを押し、登録したいキーボードのキーを押します。Escで登録を中止、BackspaceまたはDeleteで登録を解除できます。
 - 会話限定DoF：「DoFを有効にする」をON、「会話外でもDoFを使用」をOFF、「会話中の被写体にピントを合わせる」をONにします。
-- 空の除外：「詳細設定を表示」の右側にある「空をぼかさない」で切り替えます。初期値はONです。
+- 空の除外：「詳細設定を表示」の右側にある「空を鮮明に保つ」で切り替えます。互換用の基準初期値はOFFです。
 
 ホットキーの割り当てはINIへ保存され、プリセットには含まれません。ホットキーで切り替えたDoFのON/OFF状態は自動保存されません。Skyrim本体や他MODと同じキーを割り当てると、両方の操作が実行される場合があります。
 
@@ -89,7 +89,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 ### 補足
 
 - 1人称で通常プレイする場合は、詳細設定の「一人称の手前ぼかし」をOFFにすると武器や手元が鮮明になります。
-- 「空をぼかさない」は未描画の深度から空を判定します。既存INIや既存プリセットにこの設定がない場合はONとして読み込みます。月など深度を書き込む天体はぼける場合があります。
+- 「空を鮮明に保つ」は未描画の深度から空を判定します。既存INIや既存プリセットにこの設定がない場合はOFFとして読み込み、従来どおり空をぼかします。配布プリセットは必要な枠だけ個別にONを指定できます。月など深度を書き込む天体はぼける場合があります。
 - 「絞り形状ボケ」は初期状態でOFFです。ONにすると、強くピンぼけした明るい点が設定した絞り形状に近づきます。「明るいボケの強調」は、ぼかし平均で薄まる前の明点へ近づける量を調整します。元映像の明点を超える無制限な発光を追加する機能ではありません。
 - 非常に大きなボケを低い「ぼかし品質」で描画すると、サンプル密度不足によりボケが輪や点へ分裂して見える場合があります。これは既知の制限です。必要に応じて品質を上げるか、最大ぼかしを弱めてください。
 - 「周辺ボケの強さ」は、画面周辺の既存ボケを接線方向へ引き延ばし、渦巻くレンズボケを再現します。
@@ -153,7 +153,7 @@ With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Sta
 - Lens workflow: use focal length for broad depth separation, refine the in-focus range with the F-number, then set the final strength with the near and far maximum blur controls.
 - DoF Hotkey: press the hotkey button beside `Enable DoF`, then press the keyboard key you want to assign. Esc cancels assignment; Backspace or Delete clears it.
 - Dialogue-only DoF: enable `Enable DoF`, disable `Use DoF outside dialogue`, and keep dialogue focus enabled.
-- Sky exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. It defaults to on.
+- Sky exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. Its compatibility default is off.
 
 The key assignment is saved to the INI and is not part of a preset. Toggling DoF with the hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
 
@@ -172,7 +172,7 @@ When updating from an older version, Custom 1 and Custom 2 keep their original n
 ### Notes
 
 - For normal first-person play, disable `First-Person Near Blur` in Advanced Settings to keep weapons and hands sharp.
-- `Keep Sky Sharp` identifies the sky from unwritten depth. Existing INIs and presets without this setting load it as enabled. Moons and other sky objects that write depth can still be blurred.
+- `Keep Sky Sharp` identifies the sky from unwritten depth. Existing INIs and presets without this setting load it as disabled, retaining the original blurred sky. Bundled presets can explicitly opt in per slot. Moons and other sky objects that write depth can still be blurred.
 - `Aperture Bokeh` is off by default. When enabled, strongly defocused bright points take on the selected aperture shape. `Highlight Boost` controls how far the blurred result moves toward the brightest eligible shaped sample. It does not add unrestricted brightness beyond the sampled source highlight.
 - Very large blur discs rendered at low `Blur Quality` can separate into visible rings or points because the gather has insufficient sample density. This is a known limitation. Raise quality or reduce maximum blur if needed.
 - `Petzval Strength` stretches existing peripheral blur tangentially to create a swirling lens effect.

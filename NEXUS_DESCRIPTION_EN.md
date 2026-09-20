@@ -47,7 +47,7 @@ With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Sta
 - Target Focus Offset moves the focus plane toward the camera with negative values and farther away with positive values.
 - A practical lens workflow is to set broad depth separation with focal length, refine the in-focus range with the F-number, then set final strength with the near/far maximum blur controls.
 - DoF Hotkey: press the hotkey button beside `Enable DoF`, then press the keyboard key you want to assign. Esc cancels assignment; Backspace or Delete clears it.
-- Sky exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. It defaults to on.
+- Sky exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. Its compatibility default is off, including existing INIs and presets that do not contain the setting.
 
 The key assignment is saved to the INI and is not part of a preset. Toggling DoF with the hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
 

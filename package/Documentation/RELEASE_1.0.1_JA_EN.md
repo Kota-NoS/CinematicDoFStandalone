@@ -6,16 +6,16 @@
 
 ### 主な変更
 
-- 「詳細設定を表示」の右側へ「空をぼかさない」を追加しました。初期値はONで、プリセットごとに保存されます。
+- 「詳細設定を表示」の右側へ「空を鮮明に保つ」を追加しました。互換用の基準初期値はOFFで、プリセットごとに保存されます。配布プリセットは必要な枠だけ個別にONを指定できます。
 - 未描画のメイン深度から空を判定し、空だけを最終DoF合成から除外します。
 - 地形、樹木、建物などの輪郭では、近傍深度を使って空との境界を滑らかに補正します。
 - 水面については、低設定用深度とは分離したメイン深度を空判定に使い、Community Shaders併用時に海面へ生じる境目を解消しました。
-- 「空をぼかさない」がONの場合、空を絞り形状ボケと通常の「明るいボケの強調」の両方から除外します。空以外の灯火、水面反射、雪、魔法効果などは従来どおり強調されます。
+- 「空を鮮明に保つ」がONの場合、空を絞り形状ボケと通常の「明るいボケの強調」の両方から除外します。空以外の灯火、水面反射、雪、魔法効果などは従来どおり強調されます。
 - 人物追従時の保護を、画面上の人物範囲と実深度を組み合わせる共通経路へ統合しました。首周りや画面端の背景を人物として誤保護しにくくなります。
 - Community Shaders併用時の人物追従では、HDR設定にかかわらず手前ピント範囲の実効値を最低0.17 mにします。非人物の追従対象には適用しません。
 - Community Shadersなしでも同じ人物保護を使用します。64-bit HDRが明示的に無効な場合の0.15 m補助も維持します。
 - 会話限定DoFで、会話開始直後の描画遅延を減らすためレンダラー資源を事前準備します。
-- 既存INIに「空をぼかさない」の保存値がない場合はONとして読み込みます。既存のプリセットID、Custom 1／2、その他の保存値は移動・上書きしません。
+- 既存INI／既存プリセットに「空を鮮明に保つ」の保存値がない場合はOFFとして読み込み、従来の空ぼかしを維持します。明示的に保存済みのON／OFFはそのまま使用します。既存のプリセットID、Custom 1／2、その他の保存値は移動・上書きしません。
 
 ### 実機確認
 
@@ -40,7 +40,7 @@ Version 1.0.1 unifies tracked-actor protection around measured depth and adds a 
 
 ### Main changes
 
-- Added `Keep Sky Sharp` beside `Show Advanced Settings`. It defaults to on and is stored per preset.
+- Added `Keep Sky Sharp` beside `Show Advanced Settings`. Its compatibility default is off and it is stored per preset. Bundled presets can explicitly opt in per slot.
 - Clear sky is classified from unwritten main depth and excluded from the final DoF composite.
 - Boundary feathering uses neighbouring depth to keep silhouettes of terrain, trees, and buildings natural against the sky.
 - Sky classification now uses main depth independently of the low-setting fallback depth, removing the sea boundary seen with Community Shaders.
@@ -49,7 +49,7 @@ Version 1.0.1 unifies tracked-actor protection around measured depth and adds a 
 - With Community Shaders, tracked actors receive an effective near-focus floor of 0.17 m regardless of HDR settings. Non-actor targets do not receive this floor.
 - The same actor protection is used without Community Shaders, retaining the 0.15 m assist when 64-bit HDR is explicitly disabled.
 - Dialogue-only DoF prewarms renderer resources to reduce the delay when a conversation begins.
-- Existing INIs and presets without `Keep Sky Sharp` load it as enabled. Preset IDs, Custom 1/2, and all other saved values are preserved.
+- Existing INIs and presets without `Keep Sky Sharp` load it as disabled, retaining the original blurred sky. Explicitly stored on/off values continue to win. Preset IDs, Custom 1/2, and all other saved values are preserved.
 
 ### In-game verification
 
