@@ -63,12 +63,20 @@ namespace
 		if (!a_message) {
 			return;
 		}
+		auto& renderer = CDoF::DoFRenderer::GetSingleton();
 		if (a_message->type == SKSE::MessagingInterface::kPostLoad) {
-			// Plugin-load is too early for the profile value, while the render path is
-			// late enough for Community Shaders to have forced the live HDR setting on.
-			CDoF::DoFRenderer::GetSingleton().CapturePostLoadDisplaySettings();
+			// Test 7C keeps Test 7B's rendering behaviour while recording each
+			// lifecycle stage so the profile-load and Community Shaders writes can
+			// be located empirically before moving the classification point again.
+			renderer.CapturePostLoadDisplaySettings();
+			renderer.LogDisplaySettingsCheckpoint("kPostLoad");
 			CDoF::UI::TryRegister();
+		} else if (a_message->type == SKSE::MessagingInterface::kPostPostLoad) {
+			renderer.LogDisplaySettingsCheckpoint("kPostPostLoad");
+		} else if (a_message->type == SKSE::MessagingInterface::kInputLoaded) {
+			renderer.LogDisplaySettingsCheckpoint("kInputLoaded");
 		} else if (a_message->type == SKSE::MessagingInterface::kDataLoaded) {
+			renderer.LogDisplaySettingsCheckpoint("kDataLoaded");
 			CDoF::HotkeyInput::Register();
 			// Install at DataLoaded so an optional Community Shaders thunk already
 			// placed at PostPostLoad is preserved as our original call. Without
@@ -88,7 +96,9 @@ extern "C" __declspec(dllexport) bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadIn
 		SKSE::Init(a_skse, false);
 		SKSE::AllocTrampoline(28);
 		const auto settings = CDoF::LoadSettings();
-		CDoF::DoFRenderer::GetSingleton().SetSettings(settings);
+		auto& renderer = CDoF::DoFRenderer::GetSingleton();
+		renderer.SetSettings(settings);
+		renderer.LogDisplaySettingsCheckpoint("SKSEPlugin_Load");
 		CDoF::UI::Initialize(settings);
 		if (!SKSE::GetMessagingInterface()->RegisterListener(MessageHandler)) {
 			spdlog::critical("Failed to register SKSE message listener");

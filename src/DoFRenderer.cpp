@@ -231,6 +231,21 @@ void CDoF::DoFRenderer::CapturePostLoadDisplaySettings()
 		DescribeDisplayBool(postLoadHdr64Enabled_));
 }
 
+void CDoF::DoFRenderer::LogDisplaySettingsCheckpoint(std::string_view a_stage) const
+{
+	const auto saoEnabled = ReadDisplayBool("bSAOEnable:Display");
+	const auto reflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
+	const auto hdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
+	const auto communityShadersLoaded = GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
+	spdlog::info(
+		"HDR lifecycle checkpoint {}: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders module={}",
+		a_stage,
+		DescribeDisplayBool(saoEnabled),
+		DescribeDisplayBool(reflectionsEnabled),
+		DescribeDisplayBool(hdr64Enabled),
+		communityShadersLoaded ? "loaded" : "not loaded");
+}
+
 void CDoF::DoFRenderer::SetSettings(Settings a_settings)
 {
 	std::scoped_lock lock(mutex_);

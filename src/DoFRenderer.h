@@ -10,6 +10,7 @@ namespace CDoF
 		static DoFRenderer& GetSingleton();
 
 		void CapturePostLoadDisplaySettings();
+		void LogDisplaySettingsCheckpoint(std::string_view a_stage) const;
 		void SetSettings(Settings a_settings);
 		void SetModeSettings(ModeSettings a_settings);
 		void SetTargetFocus(

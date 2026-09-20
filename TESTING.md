@@ -68,9 +68,10 @@ Version 1.0.0 promotes the completed 0.8.32 rendering baseline to the first stab
 
 At low `Blur Quality`, very large blur discs can split into visible rings or points because the gather does not have enough sample density. Raise `Blur Quality` or reduce the near/far maximum blur when necessary.
 
-## Pending 1.0.1 Test 7B post-load HDR-classification verification
+## Pending 1.0.1 Test 7C HDR lifecycle diagnostic
 
-- Capture 64-bit HDR at `kPostLoad`, after the selected profile's display setting has become available but before Community Shaders configures its HDR rendering targets. Fall back to the first-frame value only if the post-load setting is unavailable.
+- Test 7B showed that `kPostLoad` still reports 64-bit HDR as disabled with a profile that explicitly enables it, while the first render frame reports it enabled. Test 7C therefore keeps Test 7B's rendering behaviour unchanged and records display-setting checkpoints at `SKSEPlugin_Load`, `kPostLoad`, `kPostPostLoad`, `kInputLoaded`, `kDataLoaded`, and the existing first-frame report.
+- Compare one complete launch with Community Shaders enabled against one with it disabled while keeping the selected profile and `bUse64bitsHDRRenderTarget=1` unchanged. This separates the profile-load transition from a Community Shaders runtime write before the classification point is moved again.
 - A valid tracked actor uses the same depth-confirmed projected guard with or without Community Shaders and with either 64-bit HDR setting.
 - The guard protects only pixels near the tracked visible-surface depth. The previous close-up head override that bypassed depth is absent on both near and far CoC paths.
 - With Community Shaders and post-load 64-bit HDR disabled, a valid tracked actor additionally receives an effective near-focus floor of `max(saved value, 0.17 m)` without changing the saved INI, preset, or UI value.
