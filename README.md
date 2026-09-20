@@ -29,7 +29,7 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 
 ビルドはSkyrim SE／AEを対象とし、配布版はAE 1.6.1170と1.7.104で実ゲーム確認済みです。1.7.104ではAddress Library v5形式へ対応します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
 
-人物追従中は、Community ShadersやHDR設定にかかわらず、画面上の人物範囲と実際の深度を組み合わせた共通の人物保護を使用します。接写時に深度を無視して頭部を強制保護する処理は使用せず、首周りや画面端の背景を人物として保護しないようにします。Community Shaders併用時は、ゲーム起動時に64-bit HDRが無効な場合だけ、保存値を変更せず手前ピント範囲の実効値を最低0.17 mにします。SAOまたはSSRだけを無効にしても0.17 m補正は有効にならず、非人物の追従対象にも適用されません。既存のCommunity Shaders深度フォールバック条件は維持します。
+人物追従中は、Community ShadersやHDR設定にかかわらず、画面上の人物範囲と実際の深度を組み合わせた共通の人物保護を使用します。接写時に深度を無視して頭部を強制保護する処理は使用せず、首周りや画面端の背景を人物として保護しないようにします。Community Shaders併用時は、PostLoad時点で64-bit HDRが無効な場合だけ、保存値を変更せず手前ピント範囲の実効値を最低0.17 mにします。SAOまたはSSRだけを無効にしても0.17 m補正は有効にならず、非人物の追従対象にも適用されません。既存のCommunity Shaders深度フォールバック条件は維持します。
 
 Community Shadersを使わない環境でも同じ人物保護を使用します。非人物のコンソール追跡対象については、SSRまたは64-bit HDRが無効な従来条件でのみ保護します。64-bit HDRが明示的に無効で、有効な追従対象がいるフレームに限り、保存値を変更せず手前ピント範囲の実効値を最低0.15 mにします。
 
@@ -120,7 +120,7 @@ CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a
 
 The build targets Skyrim SE and AE, and the distributed build was tested in game on AE 1.6.1170 and 1.7.104. Version 1.7.104 uses the Address Library v5 database format supported by this release. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
 
-While an actor is tracked, one subject-protection path combines the projected actor area with measured depth regardless of Community Shaders or HDR settings. It does not use the former close-up head override that ignored depth, preventing the projected head circle from protecting neck gaps or edge-of-frame background. With Community Shaders, startup 64-bit HDR being disabled still floors the effective near-focus range at 0.17 m without changing the saved value. Disabling only SAO or SSR does not activate the 0.17 m assist, and non-actor targets do not receive it. The established Community Shaders depth-fallback conditions are retained.
+While an actor is tracked, one subject-protection path combines the projected actor area with measured depth regardless of Community Shaders or HDR settings. It does not use the former close-up head override that ignored depth, preventing the projected head circle from protecting neck gaps or edge-of-frame background. With Community Shaders, 64-bit HDR being disabled at PostLoad floors the effective near-focus range at 0.17 m without changing the saved value. Disabling only SAO or SSR does not activate the 0.17 m assist, and non-actor targets do not receive it. The established Community Shaders depth-fallback conditions are retained.
 
 The same actor protection is used without Community Shaders. Non-actor console targets retain the legacy protection only when SSR or 64-bit HDR is disabled. When 64-bit HDR is explicitly disabled and a valid tracked target exists, the effective near-focus range is floored at 0.15 m without changing the saved value.
 

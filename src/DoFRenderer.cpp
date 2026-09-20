@@ -222,17 +222,13 @@ CDoF::DoFRenderer& CDoF::DoFRenderer::GetSingleton()
 	return singleton;
 }
 
-void CDoF::DoFRenderer::CaptureStartupDisplaySettings()
+void CDoF::DoFRenderer::CapturePostLoadDisplaySettings()
 {
 	std::scoped_lock lock(mutex_);
-	startupSaoEnabled_ = ReadDisplayBool("bSAOEnable:Display");
-	startupReflectionsEnabled_ = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
-	startupHdr64Enabled_ = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
+	postLoadHdr64Enabled_ = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
 	spdlog::info(
-		"Startup display settings captured before post-load: SAO={}, SSR={}, 64-bit HDR={}",
-		DescribeDisplayBool(startupSaoEnabled_),
-		DescribeDisplayBool(startupReflectionsEnabled_),
-		DescribeDisplayBool(startupHdr64Enabled_));
+		"Post-load display setting captured before Community Shaders rendering setup: 64-bit HDR={}",
+		DescribeDisplayBool(postLoadHdr64Enabled_));
 }
 
 void CDoF::DoFRenderer::SetSettings(Settings a_settings)
@@ -813,8 +809,8 @@ void CDoF::DoFRenderer::Apply()
 			const auto runtimeSaoEnabled = ReadDisplayBool("bSAOEnable:Display");
 			const auto runtimeReflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
 			const auto runtimeHdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
-			const auto startupHdr64ForActorAssist =
-				startupHdr64Enabled_ ? startupHdr64Enabled_ : runtimeHdr64Enabled;
+			const auto hdr64ForCommunityShadersActorAssist =
+				postLoadHdr64Enabled_ ? postLoadHdr64Enabled_ : runtimeHdr64Enabled;
 			const auto communityShadersLoaded =
 				GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
 			const auto actualHdr64Target =
@@ -829,7 +825,7 @@ void CDoF::DoFRenderer::Apply()
 			const auto standaloneHdrTargetGuardSetting =
 				runtimeHdr64Enabled && !*runtimeHdr64Enabled;
 			const auto communityShadersActorNearFocusSetting =
-				startupHdr64ForActorAssist && !*startupHdr64ForActorAssist;
+				hdr64ForCommunityShadersActorAssist && !*hdr64ForCommunityShadersActorAssist;
 			const auto standaloneTargetGuardSetting =
 				(runtimeReflectionsEnabled && !*runtimeReflectionsEnabled) ||
 				standaloneHdrTargetGuardSetting;
@@ -842,11 +838,11 @@ void CDoF::DoFRenderer::Apply()
 				!communityShadersLoaded && standaloneHdrTargetGuardSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; startup 64-bit HDR used for Community Shaders actor assist={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders HDR-off actor near-focus assist={}; standalone HDR-off near-focus assist={}",
+				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; post-load 64-bit HDR used for Community Shaders actor assist={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders HDR-off actor near-focus assist={}; standalone HDR-off near-focus assist={}",
 				DescribeDisplayBool(runtimeSaoEnabled),
 				DescribeDisplayBool(runtimeReflectionsEnabled),
 				DescribeDisplayBool(runtimeHdr64Enabled),
-				DescribeDisplayBool(startupHdr64ForActorAssist),
+				DescribeDisplayBool(hdr64ForCommunityShadersActorAssist),
 				static_cast<std::uint32_t>(inputDescription.Format),
 				actualHdr64Target ? "yes" : "no",
 				communityShadersLoaded ? "loaded" : "not loaded",

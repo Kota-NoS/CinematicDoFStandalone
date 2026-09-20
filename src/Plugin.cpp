@@ -64,6 +64,9 @@ namespace
 			return;
 		}
 		if (a_message->type == SKSE::MessagingInterface::kPostLoad) {
+			// Plugin-load is too early for the profile value, while the render path is
+			// late enough for Community Shaders to have forced the live HDR setting on.
+			CDoF::DoFRenderer::GetSingleton().CapturePostLoadDisplaySettings();
 			CDoF::UI::TryRegister();
 		} else if (a_message->type == SKSE::MessagingInterface::kDataLoaded) {
 			CDoF::HotkeyInput::Register();
@@ -83,7 +86,6 @@ extern "C" __declspec(dllexport) bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadIn
 
 	try {
 		SKSE::Init(a_skse, false);
-		CDoF::DoFRenderer::GetSingleton().CaptureStartupDisplaySettings();
 		SKSE::AllocTrampoline(28);
 		const auto settings = CDoF::LoadSettings();
 		CDoF::DoFRenderer::GetSingleton().SetSettings(settings);
