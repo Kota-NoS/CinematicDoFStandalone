@@ -222,30 +222,6 @@ CDoF::DoFRenderer& CDoF::DoFRenderer::GetSingleton()
 	return singleton;
 }
 
-void CDoF::DoFRenderer::CaptureInputLoadedDisplaySettings()
-{
-	std::scoped_lock lock(mutex_);
-	inputLoadedHdr64Enabled_ = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
-	spdlog::info(
-		"Input-loaded display setting captured after profile application: 64-bit HDR={}",
-		DescribeDisplayBool(inputLoadedHdr64Enabled_));
-}
-
-void CDoF::DoFRenderer::LogDisplaySettingsCheckpoint(std::string_view a_stage) const
-{
-	const auto saoEnabled = ReadDisplayBool("bSAOEnable:Display");
-	const auto reflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
-	const auto hdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
-	const auto communityShadersLoaded = GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
-	spdlog::info(
-		"HDR lifecycle checkpoint {}: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders module={}",
-		a_stage,
-		DescribeDisplayBool(saoEnabled),
-		DescribeDisplayBool(reflectionsEnabled),
-		DescribeDisplayBool(hdr64Enabled),
-		communityShadersLoaded ? "loaded" : "not loaded");
-}
-
 void CDoF::DoFRenderer::SetSettings(Settings a_settings)
 {
 	std::scoped_lock lock(mutex_);
@@ -824,8 +800,6 @@ void CDoF::DoFRenderer::Apply()
 			const auto runtimeSaoEnabled = ReadDisplayBool("bSAOEnable:Display");
 			const auto runtimeReflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
 			const auto runtimeHdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
-			const auto hdr64ForCommunityShadersActorAssist =
-				inputLoadedHdr64Enabled_ ? inputLoadedHdr64Enabled_ : runtimeHdr64Enabled;
 			const auto communityShadersLoaded =
 				GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
 			const auto actualHdr64Target =
@@ -839,25 +813,24 @@ void CDoF::DoFRenderer::Apply()
 			// Do not treat that normal format as a reason to enable a visible subject mask.
 			const auto standaloneHdrTargetGuardSetting =
 				runtimeHdr64Enabled && !*runtimeHdr64Enabled;
-			const auto communityShadersActorNearFocusSetting =
-				hdr64ForCommunityShadersActorAssist && !*hdr64ForCommunityShadersActorAssist;
 			const auto standaloneTargetGuardSetting =
 				(runtimeReflectionsEnabled && !*runtimeReflectionsEnabled) ||
 				standaloneHdrTargetGuardSetting;
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
 			useStandaloneNonActorTargetGuard_ =
 				!communityShadersLoaded && standaloneTargetGuardSetting;
-			useCommunityShadersActorNearFocusAssist_ =
-				communityShadersLoaded && communityShadersActorNearFocusSetting;
+			// Visual A/B testing selected the assisted Test 7A result: when Community
+			// Shaders is present, tracked actors always receive the small near-focus
+			// floor.  This is independent of HDR and does not change saved settings.
+			useCommunityShadersActorNearFocusAssist_ = communityShadersLoaded;
 			useStandaloneNearFocusAssist_ =
 				!communityShadersLoaded && standaloneHdrTargetGuardSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; input-loaded 64-bit HDR used for Community Shaders actor assist={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders HDR-off actor near-focus assist={}; standalone HDR-off near-focus assist={}",
+				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders actor near-focus assist={}; standalone HDR-off near-focus assist={}",
 				DescribeDisplayBool(runtimeSaoEnabled),
 				DescribeDisplayBool(runtimeReflectionsEnabled),
 				DescribeDisplayBool(runtimeHdr64Enabled),
-				DescribeDisplayBool(hdr64ForCommunityShadersActorAssist),
 				static_cast<std::uint32_t>(inputDescription.Format),
 				actualHdr64Target ? "yes" : "no",
 				communityShadersLoaded ? "loaded" : "not loaded",
@@ -958,7 +931,7 @@ void CDoF::DoFRenderer::Apply()
 		const char* targetNearFocusAssistName = nullptr;
 		if (validTargetFocus && validTargetFocus->actor && useCommunityShadersActorNearFocusAssist_) {
 			targetNearFocusMinimumMeters = kCommunityShadersActorNearFocusMinimumMeters;
-			targetNearFocusAssistName = "Community Shaders HDR-off actor";
+			targetNearFocusAssistName = "Community Shaders actor";
 		} else if (validTargetFocus && useStandaloneNearFocusAssist_) {
 			targetNearFocusMinimumMeters = kStandaloneNearFocusMinimumMeters;
 			targetNearFocusAssistName = "Standalone HDR-off";

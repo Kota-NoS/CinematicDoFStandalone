@@ -68,14 +68,12 @@ Version 1.0.0 promotes the completed 0.8.32 rendering baseline to the first stab
 
 At low `Blur Quality`, very large blur discs can split into visible rings or points because the gather does not have enough sample density. Raise `Blur Quality` or reduce the near/far maximum blur when necessary.
 
-## Pending 1.0.1 Test 7D input-loaded HDR classification
+## Pending 1.0.1 final-candidate verification
 
-- Test 7C established that `bUse64bitsHDRRenderTarget=1` remains disabled through `kPostPostLoad` and becomes enabled by `kInputLoaded`, identically with Community Shaders enabled and disabled. This is the game's profile-application boundary, not a Community Shaders runtime write.
-- Test 7D captures the 64-bit HDR classification at `kInputLoaded`, before the first DoF frame, and retains the lifecycle checkpoint logs for verification.
+- Test 7C established that the selected profile is applied between `kPostPostLoad` and `kInputLoaded`; the temporary lifecycle diagnostics have been removed from the final candidate.
+- Visual comparison selected the assisted Test 7A result. With Community Shaders, a valid tracked actor receives an effective near-focus floor of `max(saved value, 0.17 m)` regardless of the HDR setting. The saved INI, preset, and UI value are unchanged.
 - A valid tracked actor uses the same depth-confirmed projected guard with or without Community Shaders and with either 64-bit HDR setting.
 - The guard protects only pixels near the tracked visible-surface depth. The previous close-up head override that bypassed depth is absent on both near and far CoC paths.
-- With Community Shaders and input-loaded 64-bit HDR disabled, a valid tracked actor additionally receives an effective near-focus floor of `max(saved value, 0.17 m)` without changing the saved INI, preset, or UI value.
-- Disabled SAO or SSR alone does not activate the 0.17 m floor, and non-actor targets do not receive it.
-- Community Shaders with input-loaded 64-bit HDR enabled uses the unified actor guard without the 0.17 m floor.
+- The 0.17 m floor is limited to Community Shaders plus a valid tracked actor; non-actor targets do not receive it.
 - Standalone actors use the unified guard in every display configuration. Non-actor console targets retain the legacy SSR/HDR-disabled guard condition, while HDR disabled also applies the 0.15 m near-focus floor.
-- Verify close portraits at screen centre and near both screen edges, then compare `f/3.4` and `f/22`: face, torso, and hands should remain protected without a circular or band-shaped sharp region around the neck.
+- Verify Community Shaders with HDR enabled at 70.3 mm / f/3.4 and at 300.0 mm / f/1.0, then repeat the normal setup with HDR disabled. Check close portraits at screen centre and near both screen edges: face, torso, and hands should remain protected without a circular or band-shaped sharp region around the neck.

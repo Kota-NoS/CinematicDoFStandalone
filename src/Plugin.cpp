@@ -63,20 +63,9 @@ namespace
 		if (!a_message) {
 			return;
 		}
-		auto& renderer = CDoF::DoFRenderer::GetSingleton();
 		if (a_message->type == SKSE::MessagingInterface::kPostLoad) {
-			renderer.LogDisplaySettingsCheckpoint("kPostLoad");
 			CDoF::UI::TryRegister();
-		} else if (a_message->type == SKSE::MessagingInterface::kPostPostLoad) {
-			renderer.LogDisplaySettingsCheckpoint("kPostPostLoad");
-		} else if (a_message->type == SKSE::MessagingInterface::kInputLoaded) {
-			// Test 7C established that the selected profile's display settings are
-			// applied between kPostPostLoad and kInputLoaded, independently of
-			// Community Shaders. Capture here before render-time state can diverge.
-			renderer.CaptureInputLoadedDisplaySettings();
-			renderer.LogDisplaySettingsCheckpoint("kInputLoaded");
 		} else if (a_message->type == SKSE::MessagingInterface::kDataLoaded) {
-			renderer.LogDisplaySettingsCheckpoint("kDataLoaded");
 			CDoF::HotkeyInput::Register();
 			// Install at DataLoaded so an optional Community Shaders thunk already
 			// placed at PostPostLoad is preserved as our original call. Without
@@ -96,9 +85,7 @@ extern "C" __declspec(dllexport) bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadIn
 		SKSE::Init(a_skse, false);
 		SKSE::AllocTrampoline(28);
 		const auto settings = CDoF::LoadSettings();
-		auto& renderer = CDoF::DoFRenderer::GetSingleton();
-		renderer.SetSettings(settings);
-		renderer.LogDisplaySettingsCheckpoint("SKSEPlugin_Load");
+		CDoF::DoFRenderer::GetSingleton().SetSettings(settings);
 		CDoF::UI::Initialize(settings);
 		if (!SKSE::GetMessagingInterface()->RegisterListener(MessageHandler)) {
 			spdlog::critical("Failed to register SKSE message listener");
