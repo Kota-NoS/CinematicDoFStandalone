@@ -222,13 +222,13 @@ CDoF::DoFRenderer& CDoF::DoFRenderer::GetSingleton()
 	return singleton;
 }
 
-void CDoF::DoFRenderer::CapturePostLoadDisplaySettings()
+void CDoF::DoFRenderer::CaptureInputLoadedDisplaySettings()
 {
 	std::scoped_lock lock(mutex_);
-	postLoadHdr64Enabled_ = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
+	inputLoadedHdr64Enabled_ = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
 	spdlog::info(
-		"Post-load display setting captured before Community Shaders rendering setup: 64-bit HDR={}",
-		DescribeDisplayBool(postLoadHdr64Enabled_));
+		"Input-loaded display setting captured after profile application: 64-bit HDR={}",
+		DescribeDisplayBool(inputLoadedHdr64Enabled_));
 }
 
 void CDoF::DoFRenderer::LogDisplaySettingsCheckpoint(std::string_view a_stage) const
@@ -825,7 +825,7 @@ void CDoF::DoFRenderer::Apply()
 			const auto runtimeReflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
 			const auto runtimeHdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
 			const auto hdr64ForCommunityShadersActorAssist =
-				postLoadHdr64Enabled_ ? postLoadHdr64Enabled_ : runtimeHdr64Enabled;
+				inputLoadedHdr64Enabled_ ? inputLoadedHdr64Enabled_ : runtimeHdr64Enabled;
 			const auto communityShadersLoaded =
 				GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
 			const auto actualHdr64Target =
@@ -853,7 +853,7 @@ void CDoF::DoFRenderer::Apply()
 				!communityShadersLoaded && standaloneHdrTargetGuardSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; post-load 64-bit HDR used for Community Shaders actor assist={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders HDR-off actor near-focus assist={}; standalone HDR-off near-focus assist={}",
+				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; input-loaded 64-bit HDR used for Community Shaders actor assist={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders HDR-off actor near-focus assist={}; standalone HDR-off near-focus assist={}",
 				DescribeDisplayBool(runtimeSaoEnabled),
 				DescribeDisplayBool(runtimeReflectionsEnabled),
 				DescribeDisplayBool(runtimeHdr64Enabled),

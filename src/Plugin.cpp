@@ -65,15 +65,15 @@ namespace
 		}
 		auto& renderer = CDoF::DoFRenderer::GetSingleton();
 		if (a_message->type == SKSE::MessagingInterface::kPostLoad) {
-			// Test 7C keeps Test 7B's rendering behaviour while recording each
-			// lifecycle stage so the profile-load and Community Shaders writes can
-			// be located empirically before moving the classification point again.
-			renderer.CapturePostLoadDisplaySettings();
 			renderer.LogDisplaySettingsCheckpoint("kPostLoad");
 			CDoF::UI::TryRegister();
 		} else if (a_message->type == SKSE::MessagingInterface::kPostPostLoad) {
 			renderer.LogDisplaySettingsCheckpoint("kPostPostLoad");
 		} else if (a_message->type == SKSE::MessagingInterface::kInputLoaded) {
+			// Test 7C established that the selected profile's display settings are
+			// applied between kPostPostLoad and kInputLoaded, independently of
+			// Community Shaders. Capture here before render-time state can diverge.
+			renderer.CaptureInputLoadedDisplaySettings();
 			renderer.LogDisplaySettingsCheckpoint("kInputLoaded");
 		} else if (a_message->type == SKSE::MessagingInterface::kDataLoaded) {
 			renderer.LogDisplaySettingsCheckpoint("kDataLoaded");

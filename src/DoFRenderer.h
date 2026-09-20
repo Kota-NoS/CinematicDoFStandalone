@@ -9,7 +9,7 @@ namespace CDoF
 	public:
 		static DoFRenderer& GetSingleton();
 
-		void CapturePostLoadDisplaySettings();
+		void CaptureInputLoadedDisplaySettings();
 		void LogDisplaySettingsCheckpoint(std::string_view a_stage) const;
 		void SetSettings(Settings a_settings);
 		void SetModeSettings(ModeSettings a_settings);
@@ -143,7 +143,7 @@ namespace CDoF
 		bool useStandaloneNonActorTargetGuard_{ false };
 		bool useCommunityShadersActorNearFocusAssist_{ false };
 		bool useStandaloneNearFocusAssist_{ false };
-		std::optional<bool> postLoadHdr64Enabled_;
+		std::optional<bool> inputLoadedHdr64Enabled_;
 		bool loggedDepthFallbackUnavailable_{ false };
 		bool loggedTargetGuard_{ false };
 		bool loggedTargetNearFocusAssist_{ false };
