@@ -1,6 +1,6 @@
 # Source and build dependencies
 
-This repository contains the corresponding source for CinematicDoFStandalone 1.0.0 and the CommonLibSSE-NG source snapshot used for the build. Generated binaries, build directories, package caches, and object files are intentionally excluded from Git. A separately published source archive may include the matching release DLL and PDB under `package` for source correspondence and debugging.
+This repository contains the corresponding source for CinematicDoFStandalone 1.0.1 and the CommonLibSSE-NG source snapshot used for the build. Generated binaries, build directories, package caches, and object files are intentionally excluded from Git. A separately published source archive may include the matching release DLL and PDB under `package` for source correspondence and debugging.
 
 ## Toolchain
 
@@ -15,7 +15,7 @@ xmake f -m releasedbg -a x64
 xmake build CinematicDoFStandalone
 ```
 
-The DLL is written to `work/artifacts/1.0.0/CinematicDoFStandalone.dll`.
+The DLL is written to `work/artifacts/1.0.1/CinematicDoFStandalone.dll`.
 
 ## Included source dependency
 

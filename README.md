@@ -1,6 +1,6 @@
-# CinematicDoFStandalone 1.0.0
+# CinematicDoFStandalone 1.0.1
 
-> **Version 1.0.0:** The first stable release completes aperture-shaped bokeh, officially supports Skyrim 1.7.104 and its Address Library v5 database, and adds narrowly scoped subject protection for Skyrim display configurations that otherwise blur a tracked character. Skyrim 1.6.1170 compatibility and the completed 0.8.32 rendering baseline are preserved.
+> **Version 1.0.1:** This update adds depth-confirmed actor protection and an optional sky-preserving DoF path with feathered geometry and water boundaries. Sky pixels are also excluded from bright-bokeh amplification, preserving the mod's depth while preventing horizon seams and bright outlines. Skyrim 1.6.1170 and 1.7.104 support is retained.
 
 ## 日本語
 
@@ -23,12 +23,12 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 
 ### 必要環境
 
-- Skyrim AE 1.6.1170／1.7.104（配布版の実ゲーム確認環境）
+- Skyrim AE 1.6.1170／1.7.104
 - SKSE64
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0（ゲーム内UIを使う場合のみ）
 
-ビルドはSkyrim SE／AEを対象とし、配布版はAE 1.6.1170と1.7.104で実ゲーム確認済みです。1.7.104ではAddress Library v5形式へ対応します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
+ビルドはSkyrim SE／AEを対象とします。1.0.1の新機能はAE 1.6.1170で実ゲーム確認済みです。1.7.104対応とAddress Library v5形式は、1.0.0で検証済みの経路を維持します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
 
 人物追従中は、Community ShadersやHDR設定にかかわらず、画面上の人物範囲と実際の深度を組み合わせた共通の人物保護を使用します。接写時に深度を無視して頭部を強制保護する処理は使用せず、首周りや画面端の背景を人物として保護しないようにします。Community Shaders併用時はHDR設定にかかわらず、有効な人物追従中だけ、保存値を変更せず手前ピント範囲の実効値を最低0.17 mにします。非人物の追従対象には適用されません。既存のCommunity Shaders深度フォールバック条件は維持します。
 
@@ -117,12 +117,12 @@ CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a
 
 ### Requirements
 
-- Skyrim AE 1.6.1170 or 1.7.104 (the runtimes used for in-game release testing)
+- Skyrim AE 1.6.1170 or 1.7.104
 - SKSE64
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0 only if you want the in-game UI
 
-The build targets Skyrim SE and AE, and the distributed build was tested in game on AE 1.6.1170 and 1.7.104. Version 1.7.104 uses the Address Library v5 database format supported by this release. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
+The build targets Skyrim SE and AE. Version 1.0.1's new features were tested in game on AE 1.6.1170. Skyrim 1.7.104 support and the Address Library v5 path retain the route validated for version 1.0.0. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
 
 While an actor is tracked, one subject-protection path combines the projected actor area with measured depth regardless of Community Shaders or HDR settings. It does not use the former close-up head override that ignored depth, preventing the projected head circle from protecting neck gaps or edge-of-frame background. With Community Shaders, a valid tracked actor receives an effective near-focus floor of 0.17 m regardless of the HDR setting, without changing the saved value. Non-actor targets do not receive it. The established Community Shaders depth-fallback conditions are retained.
 

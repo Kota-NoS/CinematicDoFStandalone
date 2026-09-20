@@ -2,7 +2,7 @@
 
 CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a standalone effect. It is based on Jiaye's Community Shaders AIO work, but Community Shaders itself is not required.
 
-Version 1.0.0 is the first stable release. It combines the completed aperture-shaped bokeh, official Skyrim 1.7.104 and Address Library v5 support, and narrowly scoped tracked-subject protection for affected low-setting configurations while preserving Skyrim 1.6.1170 and the established rendering baseline.
+Version 1.0.1 adds depth-confirmed actor protection and an optional sky-preserving DoF path with feathered geometry and water boundaries. When the sky is kept sharp, it is also excluded from Highlight Boost, preventing horizon seams and bright outlines while preserving the mod's depth. Skyrim 1.6.1170/1.7.104 support and existing preset compatibility are retained.
 
 ## Features
 
@@ -13,19 +13,20 @@ Version 1.0.0 is the first stable release. It combines the completed aperture-sh
 - Independent near/far in-focus ranges and near/far maximum blur controls
 - Automatic focus on the conversation subject during dialogue
 - Option to disable near blur in first person
+- Option to exclude the sky from DoF while correcting its boundary against geometry and water
 - An optional, unassigned-by-default keyboard hotkey for toggling DoF
 - Aperture-shaped bokeh with adjustable blade count, roundness, strength, rotation, and highlight emphasis
 
 ## Requirements
 
-- Skyrim AE 1.6.1170 or 1.7.104 (the runtimes used for in-game release testing)
+- Skyrim AE 1.6.1170 or 1.7.104
 - SKSE64
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0 only if you want the in-game UI
 
-The build targets Skyrim SE and AE, and the distributed build was tested in game on AE 1.6.1170 and 1.7.104. Version 1.7.104 uses the Address Library v5 database format supported by this release. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
+The build targets Skyrim SE and AE. Version 1.0.1's new features were tested in game on AE 1.6.1170. Skyrim 1.7.104 support and the Address Library v5 path retain the route validated for version 1.0.0. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
 
-Without Community Shaders, tracked-subject protection activates when SSR or 64-bit HDR is disabled. When 64-bit HDR is explicitly disabled and a valid tracked target exists, the effective near-focus range is floored at 0.15 m without changing the saved value. The protection is disabled in a normal standalone configuration with both 64-bit HDR and SSR enabled.
+While an actor is tracked, the plugin combines the projected actor area with measured depth to protect the actor regardless of Community Shaders or HDR settings. With Community Shaders, tracked actors receive an effective near-focus floor of 0.17 m; when 64-bit HDR is explicitly disabled, the effective floor is 0.15 m. Saved INI and preset values are not changed.
 
 ## Installation
 
@@ -46,6 +47,7 @@ With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Sta
 - Target Focus Offset moves the focus plane toward the camera with negative values and farther away with positive values.
 - A practical lens workflow is to set broad depth separation with focal length, refine the in-focus range with the F-number, then set final strength with the near/far maximum blur controls.
 - DoF Hotkey: press the hotkey button beside `Enable DoF`, then press the keyboard key you want to assign. Esc cancels assignment; Backspace or Delete clears it.
+- Sky exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. It defaults to on.
 
 The key assignment is saved to the INI and is not part of a preset. Toggling DoF with the hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
 
