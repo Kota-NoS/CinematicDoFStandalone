@@ -1164,6 +1164,9 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[0] = a_color;
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[4] = resources_.cocBlur2.srv.Get();
+	// Pre-blur performs the general bright-bokeh amplification. Expose main depth
+	// so clear sky can bypass that amplification when Keep Sky Sharp is enabled.
+	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.preBlurred.uav.Get();
 	bindAndDispatch(shaders_.blur.Get(), halfWidth, halfHeight);
 	resetViews();

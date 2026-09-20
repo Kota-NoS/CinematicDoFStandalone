@@ -274,10 +274,10 @@ float GetSkyHighlightEligibility(float2 renderUV)
 	if (KeepSkySharp == 0)
 		return 1.0f;
 
-	// Highlight extraction operates on the same render-space coordinates as the
-	// blur gather. Classify the corresponding full-resolution source texel with
-	// the unfiltered main depth so clear sky cannot become a bright bokeh source.
-	// The ordinary gather weight is intentionally left untouched below.
+	// Bright-bokeh extraction and the general highlight amplifier operate on the
+	// same render-space coordinates as the blur gather. Classify the corresponding
+	// full-resolution source texel with the unfiltered main depth so clear sky
+	// cannot become a bright-bokeh source. Ordinary gather weights remain intact.
 	float2 clampedUV = ClampFullResolutionUV(renderUV);
 	uint2 renderPixel = ClampFullResolutionPixel(int2(clampedUV * SharedData::BufferDim.xy));
 	return 1.0f - GetSkyClearDepthMask(renderPixel);
@@ -605,9 +605,11 @@ float3 ConeOverlap(float3 fragment)
 	return mul(fragment, m);
 }
 
-float3 AccentuateWhites(float3 fragment)
+float3 AccentuateWhites(float3 fragment, float2 renderUV)
 {
 	if (HighlightBoost <= 0.0f)
+		return fragment;
+	if (GetSkyHighlightEligibility(renderUV) <= 0.0f)
 		return fragment;
 
 	// The legacy per-channel reciprocal could approach a zero denominator when an
@@ -723,7 +725,7 @@ float4 PerformPreDiscBlur(DiscBlurInfo blurInfo, Texture2D source)
 	const float pointsFirstRing = max(blurInfo.numberOfRings - 3, 2);  // each ring has a multiple of this value of sample points.
 
 	float4 fragment = source.SampleLevel(LinearSampler, GetInputUV(blurInfo.texcoord), 0);
-	fragment.rgb = AccentuateWhites(fragment.rgb);
+	fragment.rgb = AccentuateWhites(fragment.rgb, blurInfo.texcoord);
 	return fragment;
 }
 
@@ -1122,7 +1124,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	// first blend far plane with original buffer, then near plane on top of that.
 	float4 sourceFragment = TexColor[GetInputPixel(DTid)];
 	float4 originalFragment = sourceFragment;
-	originalFragment.rgb = AccentuateWhites(originalFragment.rgb);
+	originalFragment.rgb = AccentuateWhites(originalFragment.rgb, uv);
 	float2 halfResolutionUV = ClampHalfResolutionUV(uv);
 	float4 farFragment = TexFarBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
 	float4 nearFragment = TexNearBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
