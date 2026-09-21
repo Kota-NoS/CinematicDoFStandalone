@@ -75,6 +75,7 @@ namespace CDoF
 	{
 		// DirectInput keyboard scan code. 0 means unassigned.
 		std::uint32_t toggleDoFKey{};
+		std::uint32_t toggleSilhouetteKey{};
 	};
 
 	Settings LoadSettings();

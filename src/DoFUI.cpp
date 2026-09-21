@@ -19,7 +19,14 @@ namespace
 	bool initialized{};
 	bool registered{};
 	bool showAdvanced{};
-	bool waitingForHotkey{};
+	enum class HotkeyCaptureTarget
+	{
+		kNone,
+		kDoF,
+		kSilhouette
+	};
+	HotkeyCaptureTarget hotkeyCaptureTarget{ HotkeyCaptureTarget::kNone };
+	MenuFramework::WindowInterface* silhouetteWindow{};
 	bool japaneseFontEnabled{};
 	std::optional<std::size_t> editingPresetIndex{};
 	std::optional<std::size_t> pendingPresetResetIndex{};
@@ -235,22 +242,41 @@ namespace
 		return std::format("Key 0x{:02X}", a_keyCode);
 	}
 
-	void RenderHotkeyControl()
+	void BeginHotkeyCapture(HotkeyCaptureTarget a_target)
+	{
+		hotkeyCaptureTarget = a_target;
+		SetStatus(
+			"Press a keyboard key to assign it. Esc cancels; Backspace or Delete clears it.",
+			"登録するキーボードのキーを押してください。Escで中止、BackspaceまたはDeleteで解除します。");
+	}
+
+	void RenderDoFHotkeyControl()
 	{
 		MenuFramework::SameLine();
-		const auto label = waitingForHotkey ?
+		const auto label = hotkeyCaptureTarget == HotkeyCaptureTarget::kDoF ?
 			std::string(Localized("Press a key...", "キーを押してください...")) + "##ToggleDoFHotkey" :
 			std::string(Localized("Hotkey: ", "ホットキー：")) + HotkeyName(hotkeySettings.toggleDoFKey) +
 				"##ToggleDoFHotkey";
 		if (MenuFramework::Button(label.c_str())) {
-			waitingForHotkey = true;
-			SetStatus(
-				"Press a keyboard key to assign it. Esc cancels; Backspace or Delete clears it.",
-				"登録するキーボードのキーを押してください。Escで中止、BackspaceまたはDeleteで解除します。");
+			BeginHotkeyCapture(HotkeyCaptureTarget::kDoF);
 		}
 		MenuFramework::ItemTooltip(Localized(
 			"Assigns a keyboard hotkey that toggles DoF without saving the enabled state. Esc cancels assignment; Backspace or Delete clears it. Avoid keys used by Skyrim or other mods because both actions may run.",
 			"DoFのON/OFFを切り替えるキーボードのホットキーです。切替状態は自動保存しません。Escで登録を中止し、BackspaceまたはDeleteで解除します。Skyrimや他MODと同じキーでは両方の操作が実行される場合があります。"));
+	}
+
+	void RenderSilhouetteHotkeyControl()
+	{
+		const auto label = hotkeyCaptureTarget == HotkeyCaptureTarget::kSilhouette ?
+			std::string(Localized("Press a key...", "キーを押してください...")) + "##ToggleSilhouetteHotkey" :
+			std::string(Localized("Hotkey: ", "ホットキー：")) +
+				HotkeyName(hotkeySettings.toggleSilhouetteKey) + "##ToggleSilhouetteHotkey";
+		if (MenuFramework::Button(label.c_str())) {
+			BeginHotkeyCapture(HotkeyCaptureTarget::kSilhouette);
+		}
+		MenuFramework::ItemTooltip(Localized(
+			"Assigns a keyboard hotkey that toggles silhouette mode even while this window is closed. The enabled state is not saved automatically. Esc cancels assignment; Backspace or Delete clears it.",
+			"この小窓を閉じていてもシルエット撮影モードをON/OFFできるキーボードのホットキーです。切替状態は自動保存しません。Escで登録を中止し、BackspaceまたはDeleteで解除します。"));
 	}
 
 	Settings GameplayPreset()
@@ -866,7 +892,7 @@ namespace
 			silhouetteSettings = LoadSilhouetteSettings();
 			interfaceSettings = LoadInterfaceSettings();
 			hotkeySettings = LoadHotkeySettings();
-			waitingForHotkey = false;
+			hotkeyCaptureTarget = HotkeyCaptureTarget::kNone;
 			LoadPresets();
 			editingPresetIndex = FindMatchingPreset();
 			DoFRenderer::GetSingleton().SetSettings(uiSettings);
@@ -1072,7 +1098,20 @@ namespace
 			&uiSettings.enabled,
 			"Master switch for all DoF rendering, including dialogue. The hotkey controls this same switch.",
 			"会話中を含むすべてのDoF描画の主スイッチです。ホットキーも同じスイッチを切り替えます。");
-		RenderHotkeyControl();
+		RenderDoFHotkeyControl();
+		MenuFramework::SameLine();
+		if (MenuFramework::Button("■##OpenSilhouettePhotoMode")) {
+			if (silhouetteWindow) {
+				silhouetteWindow->isOpen = true;
+			}
+		}
+		MenuFramework::ItemTooltip(Localized(
+			silhouetteSettings.enabled ?
+				"Open Silhouette Photo Mode settings. Silhouette mode is currently ON." :
+				"Open Silhouette Photo Mode settings. Silhouette mode is currently OFF.",
+			silhouetteSettings.enabled ?
+				"シルエット撮影モードの小窓を開きます。現在シルエットはONです。" :
+				"シルエット撮影モードの小窓を開きます。現在シルエットはOFFです。"));
 		changed |= CheckboxWithHelp(
 			"Use DoF outside dialogue",
 			"会話外でもDoFを使用",
@@ -1086,7 +1125,6 @@ namespace
 	bool RenderSilhouetteControls()
 	{
 		bool changed{};
-		MenuFramework::SeparatorText(Localized("Silhouette Photo Mode", "シルエット撮影モード"));
 		changed |= CheckboxWithHelp(
 			"Enable Silhouette Mode",
 			"シルエット撮影モードを有効にする",
@@ -1108,7 +1146,48 @@ namespace
 		MenuFramework::ItemTooltip(Localized(
 			"Silhouette mode always stops in the main menu, loading screens, and world/local maps, independently of the normal DoF menu setting.",
 			"通常DoFのメニュー設定とは別に、タイトル・ロード・ワールドマップ・ローカルマップでは常に停止します。"));
+		RenderSilhouetteHotkeyControl();
 		return changed;
+	}
+
+	void __stdcall RenderSilhouetteWindow()
+	{
+		std::scoped_lock lock(uiMutex);
+		const auto fontPushed = PushLocalizedFont();
+		bool open = true;
+		const auto visible = MenuFramework::Begin(
+			Localized(
+				"Silhouette Photo Mode##CinematicDoFStandaloneSilhouette",
+				"シルエット撮影モード##CinematicDoFStandaloneSilhouette"),
+			&open);
+		if (visible) {
+			if (RenderSilhouetteControls()) {
+				ApplyLive();
+			}
+			if (MenuFramework::Button(Localized("Save Startup Settings", "次回起動設定を保存"))) {
+				if (SaveSilhouetteSettings(silhouetteSettings) && SaveHotkeySettings(hotkeySettings)) {
+					SetStatus(
+						"Saved silhouette startup settings and hotkey.",
+						"シルエットの次回起動設定とホットキーを保存しました。");
+				} else {
+					SetStatus(
+						"Could not save silhouette settings. See the plugin log.",
+						"シルエット設定を保存できませんでした。ログを確認してください。");
+				}
+			}
+			MenuFramework::ItemTooltip(Localized(
+				"Saves the current silhouette switch and colors for the next launch. Hotkey assignments are saved immediately when changed.",
+				"現在のシルエットON/OFFと2色を次回起動用に保存します。ホットキーは変更時に自動保存されます。"));
+			MenuFramework::Text(
+				interfaceSettings.japanese ? statusTextJapanese.c_str() : statusTextEnglish.c_str());
+		}
+		MenuFramework::End();
+		if (!open && silhouetteWindow) {
+			silhouetteWindow->isOpen = false;
+		}
+		if (fontPushed) {
+			MenuFramework::PopFont();
+		}
 	}
 
 	void __stdcall RenderMainPage()
@@ -1118,7 +1197,7 @@ namespace
 		if (RenderModeControls()) {
 			ApplyLive();
 		}
-		if (RenderSilhouetteControls()) {
+		if (!silhouetteWindow && RenderSilhouetteControls()) {
 			ApplyLive();
 		}
 		if (RenderCoreControls()) {
@@ -1127,7 +1206,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette Test 3");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette UI Test 4");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}
@@ -1163,6 +1242,10 @@ void CDoF::UI::TryRegister()
 		spdlog::warn("SKSE Menu Framework is loaded but AddSectionItem is unavailable");
 		return;
 	}
+	silhouetteWindow = MenuFramework::AddWindow(RenderSilhouetteWindow, true);
+	if (!silhouetteWindow) {
+		spdlog::warn("SKSE Menu Framework AddWindow is unavailable; using inline silhouette controls");
+	}
 	registered = true;
 	spdlog::info("Registered SKSE Menu Framework UI (framework API {:.1f})", MenuFramework::GetVersion());
 }
@@ -1174,34 +1257,69 @@ void CDoF::UI::HandleKeyboardKey(std::uint32_t a_keyCode)
 		return;
 	}
 
-	if (waitingForHotkey) {
+	if (hotkeyCaptureTarget != HotkeyCaptureTarget::kNone) {
 		if (a_keyCode == kEscapeKey) {
-			waitingForHotkey = false;
+			hotkeyCaptureTarget = HotkeyCaptureTarget::kNone;
 			SetStatus("Hotkey assignment cancelled.", "ホットキーの登録を中止しました。");
 			return;
 		}
 
-		const auto previousKey = hotkeySettings.toggleDoFKey;
-		hotkeySettings.toggleDoFKey =
+		const auto previousSettings = hotkeySettings;
+		const auto assignedKey =
 			(a_keyCode == kBackspaceKey || a_keyCode == kDeleteKey) ? 0u : a_keyCode;
+		const auto target = hotkeyCaptureTarget;
+		if (target == HotkeyCaptureTarget::kDoF) {
+			hotkeySettings.toggleDoFKey = assignedKey;
+			if (assignedKey != 0 && hotkeySettings.toggleSilhouetteKey == assignedKey) {
+				hotkeySettings.toggleSilhouetteKey = 0;
+			}
+		} else {
+			hotkeySettings.toggleSilhouetteKey = assignedKey;
+			if (assignedKey != 0 && hotkeySettings.toggleDoFKey == assignedKey) {
+				hotkeySettings.toggleDoFKey = 0;
+			}
+		}
 		if (!SaveHotkeySettings(hotkeySettings)) {
-			hotkeySettings.toggleDoFKey = previousKey;
-			waitingForHotkey = false;
+			hotkeySettings = previousSettings;
+			hotkeyCaptureTarget = HotkeyCaptureTarget::kNone;
 			SetStatus(
 				"Could not save the hotkey. See the plugin log.",
 				"ホットキーを保存できませんでした。ログを確認してください。");
 			return;
 		}
 
-		waitingForHotkey = false;
-		if (hotkeySettings.toggleDoFKey == 0) {
-			SetStatus("DoF hotkey cleared.", "DoFホットキーを解除しました。");
-		} else {
-			const auto keyName = HotkeyName(hotkeySettings.toggleDoFKey);
+		hotkeyCaptureTarget = HotkeyCaptureTarget::kNone;
+		if (assignedKey == 0) {
 			SetStatus(
-				std::format("DoF hotkey assigned to {}.", keyName),
-				std::format("DoFホットキーを{}に登録しました。", keyName));
+				target == HotkeyCaptureTarget::kDoF ? "DoF hotkey cleared." : "Silhouette hotkey cleared.",
+				target == HotkeyCaptureTarget::kDoF ? "DoFホットキーを解除しました。" : "シルエットホットキーを解除しました。");
+		} else {
+			const auto keyName = HotkeyName(assignedKey);
+			SetStatus(
+				target == HotkeyCaptureTarget::kDoF ?
+					std::format("DoF hotkey assigned to {}.", keyName) :
+					std::format("Silhouette hotkey assigned to {}.", keyName),
+				target == HotkeyCaptureTarget::kDoF ?
+					std::format("DoFホットキーを{}に登録しました。", keyName) :
+					std::format("シルエットホットキーを{}に登録しました。", keyName));
 		}
+		return;
+	}
+
+	if (hotkeySettings.toggleSilhouetteKey != 0 && a_keyCode == hotkeySettings.toggleSilhouetteKey) {
+		silhouetteSettings.enabled = !silhouetteSettings.enabled;
+		DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
+		SetStatus(
+			silhouetteSettings.enabled ?
+				"Silhouette mode enabled by hotkey (not saved)." :
+				"Silhouette mode disabled by hotkey (not saved).",
+			silhouetteSettings.enabled ?
+				"ホットキーでシルエット撮影モードをONにしました（INI未保存）。" :
+				"ホットキーでシルエット撮影モードをOFFにしました（INI未保存）。");
+		spdlog::info(
+			"Silhouette mode {} by keyboard hotkey 0x{:02X}",
+			silhouetteSettings.enabled ? "enabled" : "disabled",
+			a_keyCode);
 		return;
 	}
 

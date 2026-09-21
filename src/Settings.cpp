@@ -399,12 +399,20 @@ CDoF::HotkeySettings CDoF::LoadHotkeySettings()
 {
 	HotkeySettings result{};
 	result.toggleDoFKey = std::min(ReadUInt(kHotkeySection, L"ToggleDoF", result.toggleDoFKey), 0xFFu);
+	result.toggleSilhouetteKey = std::min(
+		ReadUInt(kHotkeySection, L"ToggleSilhouette", result.toggleSilhouetteKey),
+		0xFFu);
 	return result;
 }
 
 bool CDoF::SaveHotkeySettings(const HotkeySettings& a_settings)
 {
-	const auto success = WriteUInt(kHotkeySection, L"ToggleDoF", std::min(a_settings.toggleDoFKey, 0xFFu));
+	bool success = true;
+	success = WriteUInt(kHotkeySection, L"ToggleDoF", std::min(a_settings.toggleDoFKey, 0xFFu)) && success;
+	success = WriteUInt(
+		kHotkeySection,
+		L"ToggleSilhouette",
+		std::min(a_settings.toggleSilhouetteKey, 0xFFu)) && success;
 	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
 	return success;
 }
