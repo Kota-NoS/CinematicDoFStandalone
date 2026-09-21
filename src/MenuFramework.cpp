@@ -125,6 +125,53 @@ bool CDoF::MenuFramework::Button(const char* a_label)
 	return function ? function(a_label, ImVec2{}) : false;
 }
 
+bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
+{
+	using ButtonFunction = bool (*)(const char*, ImVec2);
+	using GetItemRectFunction = ImVec2 (*)();
+	using GetDrawListFunction = void* (*)();
+	using AddCircleFilledFunction = void (*)(void*, ImVec2, float, std::uint32_t, int);
+	using AddRectFilledFunction = void (*)(void*, ImVec2, ImVec2, std::uint32_t, float, int);
+
+	const auto button = Resolve<ButtonFunction>("igButton");
+	if (!button) {
+		return false;
+	}
+	const auto getItemMin = Resolve<GetItemRectFunction>("igGetItemRectMin");
+	const auto getItemMax = Resolve<GetItemRectFunction>("igGetItemRectMax");
+	const auto getDrawList = Resolve<GetDrawListFunction>("igGetWindowDrawList");
+	const auto addCircleFilled = Resolve<AddCircleFilledFunction>("ImDrawList_AddCircleFilled");
+	const auto addRectFilled = Resolve<AddRectFilledFunction>("ImDrawList_AddRectFilled");
+	const auto canDraw = getItemMin && getItemMax && getDrawList && addCircleFilled && addRectFilled;
+	const auto fallbackLabel = std::string("S") + a_id;
+
+	// Keep the clickable frame in ImGui so hover, active, navigation, and input
+	// behavior match every other Menu Framework button. The visible person is
+	// drawn over an ID-only label and therefore does not depend on font glyphs.
+	// An ASCII S remains as a compatibility fallback for older frameworks.
+	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ 28.0F, 0.0F });
+	if (!canDraw) {
+		return pressed;
+	}
+
+	const auto minimum = getItemMin();
+	const auto maximum = getItemMax();
+	const auto width = std::max(maximum.x - minimum.x, 1.0F);
+	const auto height = std::max(maximum.y - minimum.y, 1.0F);
+	const auto centerX = (minimum.x + maximum.x) * 0.5F;
+	const auto iconColor = a_active ? 0xFF1F9EFFU : 0xFFFFFFFFU;  // orange or white, ABGR
+	const auto headRadius = std::max(1.5F, std::min(width, height) * 0.115F);
+	const ImVec2 headCenter{ centerX, minimum.y + height * 0.34F };
+	const ImVec2 bodyMinimum{ centerX - width * 0.19F, minimum.y + height * 0.55F };
+	const ImVec2 bodyMaximum{ centerX + width * 0.19F, maximum.y - height * 0.16F };
+
+	if (auto* drawList = getDrawList()) {
+		addCircleFilled(drawList, headCenter, headRadius, iconColor, 12);
+		addRectFilled(drawList, bodyMinimum, bodyMaximum, iconColor, headRadius, 0);
+	}
+	return pressed;
+}
+
 void CDoF::MenuFramework::SameLine()
 {
 	using Function = void (*)(float, float);

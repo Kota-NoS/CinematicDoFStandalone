@@ -29,6 +29,7 @@ namespace CDoF::MenuFramework
 	bool ColorEdit3(const char* a_label, float* a_color);
 	bool SliderFloat(const char* a_label, float* a_value, float a_min, float a_max, const char* a_format);
 	bool Button(const char* a_label);
+	bool SilhouetteIconButton(const char* a_id, bool a_active);
 	void SameLine();
 	void ItemTooltip(const char* a_text);
 	bool PushFont(const char* a_name);

@@ -1100,7 +1100,7 @@ namespace
 			"会話中を含むすべてのDoF描画の主スイッチです。ホットキーも同じスイッチを切り替えます。");
 		RenderDoFHotkeyControl();
 		MenuFramework::SameLine();
-		if (MenuFramework::Button("■##OpenSilhouettePhotoMode")) {
+		if (MenuFramework::SilhouetteIconButton("##OpenSilhouettePhotoMode", silhouetteSettings.enabled)) {
 			if (silhouetteWindow) {
 				silhouetteWindow->isOpen = true;
 			}
@@ -1206,7 +1206,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette UI Test 4");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette UI Test 5");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}
