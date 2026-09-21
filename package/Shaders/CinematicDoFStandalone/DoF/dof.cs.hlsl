@@ -269,6 +269,44 @@ float GetSkyClearDepthMask(uint2 renderPixel)
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
 
+float3 GetMoonWaterDepthDiagnosticColor(uint2 renderPixel)
+{
+	uint2 inputPixel = GetInputPixel(renderPixel);
+	float earlyRawDepth = DepthTexture[inputPixel];
+	float finalRawDepth = SkyMaskDepthTexture[inputPixel];
+	bool earlyClear = earlyRawDepth >= 1.0f;
+	bool finalClear = finalRawDepth >= 1.0f;
+
+	// Neither depth path saw geometry: ordinary sky.
+	if (earlyClear && finalClear)
+		return float3(0.0f, 0.45f, 1.0f);  // cyan-blue
+
+	// The early path saw geometry but the final path did not. This is not an
+	// expected ordering, so make it conspicuous if it ever occurs.
+	if (!earlyClear && finalClear)
+		return float3(0.0f, 1.0f, 0.0f);  // green
+
+	// Geometry present in both paths is not relevant to the water/moon split.
+	if (!earlyClear)
+		return float3(0.015f, 0.015f, 0.015f);  // nearly black
+
+	// Geometry that appears only in the final depth was rendered after the
+	// low-spec fallback copy. Encode its linear camera distance in discrete
+	// bands so screenshots remain readable through the game's HDR pipeline.
+	float distanceMeters = SharedData::GetScreenDepth(finalRawDepth) * GAME_UNIT_TO_M;
+	if (distanceMeters < 25.0f)
+		return float3(1.0f, 1.0f, 0.0f);  // yellow: under 25 m
+	if (distanceMeters < 100.0f)
+		return float3(1.0f, 0.45f, 0.0f);  // orange: 25-100 m
+	if (distanceMeters < 500.0f)
+		return float3(1.0f, 0.0f, 0.0f);  // red: 100-500 m
+	if (distanceMeters < 2000.0f)
+		return float3(1.0f, 0.0f, 1.0f);  // magenta: 0.5-2 km
+	if (distanceMeters < 10000.0f)
+		return float3(0.55f, 0.0f, 1.0f);  // violet: 2-10 km
+	return float3(1.0f, 1.0f, 1.0f);  // white: 10 km or farther
+}
+
 float GetSkyHighlightEligibility(float2 renderUV)
 {
 	if (KeepSkySharp == 0)
@@ -1120,39 +1158,16 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
-	// first blend far plane with original buffer, then near plane on top of that.
-	float4 sourceFragment = TexColor[GetInputPixel(DTid)];
-	float4 originalFragment = sourceFragment;
-	originalFragment.rgb = AccentuateWhites(originalFragment.rgb, uv);
-	float2 halfResolutionUV = ClampHalfResolutionUV(uv);
-	float4 farFragment = TexFarBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
-	float4 nearFragment = TexNearBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
-	float pixelCoC = TexCoCInput[DTid].r;
-	// multiply with far plane max blur so if we need to have 0 blur we get full res
-	float realCoC = pixelCoC * saturate(FarPlaneMaxBlur);
-	// all CoC's > 0.1 are full far fragment, below that, we're going to blend. This avoids shimmering far plane without the need of a
-	// 'magic' number to boost up the alpha.
-	float blendFactor = (realCoC > 0.1) ? 1 : smoothstep(0, 1, (realCoC / 0.1));
-	float4 color;
-	color = lerp(originalFragment, farFragment, blendFactor);
-	float nearBlend = nearFragment.a * (NearPlaneMaxBlur != 0);
-	float nearBlurProtection = max(GetTargetDepthProtection(uv), GetFocusRangeProtection(uv));
-	nearBlend *= 1.0f - nearBlurProtection;
-	color.rgb = lerp(color.rgb, nearFragment.rgb, nearBlend);
-	float skyProtection = RecoverSkyInteriorProtection(DTid, uv, pixelCoC);
-	color.rgb = lerp(color.rgb, sourceFragment.rgb, skyProtection);
-	color.a = 1.0;
-	RWTexOut[DTid] = color;
+	RWTexOut[DTid] = float4(GetMoonWaterDepthDiagnosticColor(DTid), 1.0f);
 }
 
 [numthreads(8, 8, 1)] void CS_PostSmoothing1(uint2 DTid : SV_DispatchThreadID) {
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
-
-	RWTexOut[DTid] = PerformFullFragmentGaussianBlur(TexColor, uv, DTid, float2((SharedData::BufferDim.z), 0.0));
+	// Diagnostic output must remain discrete; normal post smoothing would blend
+	// the class colours at every silhouette.
+	RWTexOut[DTid] = TexColor[DTid];
 }
 
 	[numthreads(8, 8, 1)] void CS_PostSmoothing2AndFocusing(uint2 DTid : SV_DispatchThreadID)
@@ -1160,13 +1175,5 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
-
-	float4 color = PerformFullFragmentGaussianBlur(TexPostSmoothInput, uv, DTid, float2(0.0, (SharedData::BufferDim.w)));
-	float4 originalColor = TexColor[GetInputPixel(DTid)];
-
-	float coc = abs(TexCoCInput[DTid].r);
-	color.rgb = lerp(originalColor.rgb, color.rgb, saturate(coc < length(SharedData::BufferDim.zw) ? 0 : 4 * coc));
-
-	RWTexOut[DTid] = float4(color.rgb, 1.0f);
+	RWTexOut[DTid] = TexColor[DTid];
 }
