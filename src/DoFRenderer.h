@@ -103,6 +103,7 @@ namespace CDoF
 			ID3D11ShaderResourceView* a_color,
 			ID3D11ShaderResourceView* a_depth,
 			ID3D11ShaderResourceView* a_skyMaskDepth,
+			ID3D11ShaderResourceView* a_waterMask,
 			const Settings& a_settings,
 			const TargetFocusSample* a_targetGuard,
 			float a_targetNearFocusMinimumMeters,
@@ -146,6 +147,7 @@ namespace CDoF
 		bool loggedTargetGuard_{ false };
 		bool loggedTargetNearFocusAssist_{ false };
 		bool loggedRenderAreaDiagnostics_{ false };
+		bool loggedWaterMaskDiagnostics_{ false };
 		bool dialogueOnlyPrewarmed_{ false };
 		TargetFocusMode targetFocusMode_{ TargetFocusMode::kNone };
 		std::mutex mutex_;

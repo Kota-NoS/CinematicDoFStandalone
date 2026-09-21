@@ -41,7 +41,8 @@ namespace
 		float headGuardRadius;
 		std::uint32_t keepSkySharp;
 		Float2 targetGuardAxis;
-		std::uint32_t padding4[2];
+		std::uint32_t waterMaskAvailable;
+		std::uint32_t padding4;
 	};
 	static_assert(sizeof(DoFConstants) == 144);
 
@@ -783,6 +784,7 @@ void CDoF::DoFRenderer::Apply()
 		}
 
 		auto& mainTarget = rendererData.renderTargets[RE::RENDER_TARGETS::kMAIN];
+		auto& rawWaterTarget = rendererData.renderTargets[RE::RENDER_TARGETS::kRAW_WATER];
 		ComPtr<ID3D11RenderTargetView> currentRTV;
 		ComPtr<ID3D11DepthStencilView> currentDSV;
 		context->OMGetRenderTargets(1, currentRTV.GetAddressOf(), currentDSV.GetAddressOf());
@@ -792,6 +794,21 @@ void CDoF::DoFRenderer::Apply()
 		auto depth = mainDepth;
 		if (!mainTarget.texture || !mainTarget.SRV || !mainDepth) {
 			return;
+		}
+		if (!loggedWaterMaskDiagnostics_) {
+			loggedWaterMaskDiagnostics_ = true;
+			const auto waterDescription = GetTextureDescription(rawWaterTarget.SRV);
+			if (waterDescription) {
+				spdlog::info(
+					"CS water-mask diagnostic: kRAW_WATER is available ({}x{}, format={}, sample count={})",
+					waterDescription->Width,
+					waterDescription->Height,
+					static_cast<std::uint32_t>(waterDescription->Format),
+					waterDescription->SampleDesc.Count);
+			} else {
+				spdlog::warn(
+					"CS water-mask diagnostic: kRAW_WATER has no readable shader-resource view");
+			}
 		}
 
 		D3D11_TEXTURE2D_DESC inputDescription{};
@@ -961,6 +978,7 @@ void CDoF::DoFRenderer::Apply()
 			mainTarget.SRV,
 			depth,
 			mainDepth,
+			rawWaterTarget.SRV,
 			effectiveSettings,
 			targetGuard,
 			targetNearFocusMinimumMeters,
@@ -1003,6 +1021,7 @@ void CDoF::DoFRenderer::Dispatch(
 	ID3D11ShaderResourceView* a_color,
 	ID3D11ShaderResourceView* a_depth,
 	ID3D11ShaderResourceView* a_skyMaskDepth,
+	ID3D11ShaderResourceView* a_waterMask,
 	const Settings& a_settings,
 	const TargetFocusSample* a_targetGuard,
 	float a_targetNearFocusMinimumMeters,
@@ -1050,7 +1069,8 @@ void CDoF::DoFRenderer::Dispatch(
 		.keepSkySharp = a_settings.keepSkySharp ? 1U : 0U,
 		.targetGuardAxis = a_targetGuard ?
 			Float2{ a_targetGuard->guardAxis[0], a_targetGuard->guardAxis[1] } : Float2{},
-		.padding4 = {}
+		.waterMaskAvailable = a_waterMask ? 1U : 0U,
+		.padding4 = 0U
 	};
 	const SharedConstants sharedData{
 		.cameraData = GetCameraData(),
@@ -1078,7 +1098,7 @@ void CDoF::DoFRenderer::Dispatch(
 	a_context->CSSetConstantBuffers(5, 1, &sharedCB);
 	a_context->CSSetSamplers(0, 1, &sampler);
 
-	std::array<ID3D11ShaderResourceView*, 12> srvs{};
+	std::array<ID3D11ShaderResourceView*, 13> srvs{};
 	std::array<ID3D11UnorderedAccessView*, 3> uavs{};
 	const auto resetViews = [&]() {
 		srvs.fill(nullptr);
@@ -1225,6 +1245,7 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[5] = resources_.blurredFiltered.srv.Get();
 	srvs[6] = resources_.nearBlurred.srv.Get();
 	srvs[11] = a_skyMaskDepth;
+	srvs[12] = a_waterMask;
 	uavs[0] = resources_.postSmooth.uav.Get();
 	bindAndDispatch(shaders_.combiner.Get(), fullWidth, fullHeight);
 	resetViews();

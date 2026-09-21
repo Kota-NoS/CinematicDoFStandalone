@@ -133,6 +133,7 @@ Texture2D<float4> TexFarGatherColor1 : register(t8);
 Texture2D<float4> TexFarGatherColor2 : register(t9);
 Texture2D<float4> TexFarGatherColor3 : register(t10);
 Texture2D<float> SkyMaskDepthTexture : register(t11);
+Texture2D<float4> WaterMaskTexture : register(t12);
 
 cbuffer DoFCB : register(b1)
 {
@@ -165,7 +166,8 @@ cbuffer DoFCB : register(b1)
 	float HeadGuardRadius;
 	uint KeepSkySharp;
 	float2 TargetGuardAxis;
-	uint2 pad4;
+	uint WaterMaskAvailable;
+	uint pad4;
 };
 
 #define SENSOR_SIZE 0.024f
@@ -269,42 +271,20 @@ float GetSkyClearDepthMask(uint2 renderPixel)
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
 
-float3 GetMoonWaterDepthDiagnosticColor(uint2 renderPixel)
+float3 GetCommunityShadersWaterMaskDiagnosticColor(uint2 renderPixel)
 {
-	uint2 inputPixel = GetInputPixel(renderPixel);
-	float earlyRawDepth = DepthTexture[inputPixel];
-	float finalRawDepth = SkyMaskDepthTexture[inputPixel];
-	bool earlyClear = earlyRawDepth >= 1.0f;
-	bool finalClear = finalRawDepth >= 1.0f;
+	// A full magenta frame means the renderer did not expose a readable raw
+	// water target. This keeps "unavailable" distinct from a valid empty mask.
+	if (WaterMaskAvailable == 0)
+		return float3(1.0f, 0.0f, 1.0f);
 
-	// Neither depth path saw geometry: ordinary sky.
-	if (earlyClear && finalClear)
-		return float3(0.0f, 0.45f, 1.0f);  // cyan-blue
+	float2 renderUV = (float2(renderPixel) + 0.5f) * SharedData::BufferDim.zw;
+	float waterMask = WaterMaskTexture.SampleLevel(LinearSampler, GetInputUV(renderUV), 0).z;
+	float coverage = saturate((waterMask - 1e-4f) / (1e-3f - 1e-4f));
 
-	// The early path saw geometry but the final path did not. This is not an
-	// expected ordering, so make it conspicuous if it ever occurs.
-	if (!earlyClear && finalClear)
-		return float3(0.0f, 1.0f, 0.0f);  // green
-
-	// Geometry present in both paths is not relevant to the water/moon split.
-	if (!earlyClear)
-		return float3(0.015f, 0.015f, 0.015f);  // nearly black
-
-	// Geometry that appears only in the final depth was rendered after the
-	// low-spec fallback copy. Encode its linear camera distance in discrete
-	// bands so screenshots remain readable through the game's HDR pipeline.
-	float distanceMeters = SharedData::GetScreenDepth(finalRawDepth) * GAME_UNIT_TO_M;
-	if (distanceMeters < 25.0f)
-		return float3(1.0f, 1.0f, 0.0f);  // yellow: under 25 m
-	if (distanceMeters < 100.0f)
-		return float3(1.0f, 0.45f, 0.0f);  // orange: 25-100 m
-	if (distanceMeters < 500.0f)
-		return float3(1.0f, 0.0f, 0.0f);  // red: 100-500 m
-	if (distanceMeters < 2000.0f)
-		return float3(1.0f, 0.0f, 1.0f);  // magenta: 0.5-2 km
-	if (distanceMeters < 10000.0f)
-		return float3(0.55f, 0.0f, 1.0f);  // violet: 2-10 km
-	return float3(1.0f, 1.0f, 1.0f);  // white: 10 km or farther
+	// Match Community Shaders' own WaterBlend mask interpretation. Valid water
+	// appears cyan; everything else, including depth-writing moons, stays black.
+	return lerp(float3(0.0f, 0.0f, 0.0f), float3(0.0f, 1.0f, 1.0f), coverage);
 }
 
 float GetSkyHighlightEligibility(float2 renderUV)
@@ -1158,7 +1138,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	RWTexOut[DTid] = float4(GetMoonWaterDepthDiagnosticColor(DTid), 1.0f);
+	RWTexOut[DTid] = float4(GetCommunityShadersWaterMaskDiagnosticColor(DTid), 1.0f);
 }
 
 [numthreads(8, 8, 1)] void CS_PostSmoothing1(uint2 DTid : SV_DispatchThreadID) {
