@@ -54,6 +54,13 @@ namespace
 	};
 	static_assert(sizeof(SharedConstants) == 48);
 
+	struct alignas(16) SilhouetteConstants
+	{
+		std::array<float, 4> foregroundColor;
+		std::array<float, 4> backgroundColor;
+	};
+	static_assert(sizeof(SilhouetteConstants) == 32);
+
 	struct RenderArea
 	{
 		std::uint32_t left{};
@@ -260,6 +267,18 @@ void CDoF::DoFRenderer::SetModeSettings(ModeSettings a_settings)
 	modeSettings_ = a_settings;
 }
 
+void CDoF::DoFRenderer::SetSilhouetteSettings(SilhouetteSettings a_settings)
+{
+	std::scoped_lock lock(mutex_);
+	for (auto& component : a_settings.foregroundColor) {
+		component = std::clamp(component, 0.0F, 1.0F);
+	}
+	for (auto& component : a_settings.backgroundColor) {
+		component = std::clamp(component, 0.0F, 1.0F);
+	}
+	silhouetteSettings_ = a_settings;
+}
+
 void CDoF::DoFRenderer::SetTargetFocus(
 	TargetFocusSettings a_settings,
 	Settings a_dialogueLensSettings)
@@ -409,29 +428,84 @@ bool CDoF::DoFRenderer::CompileShaders(ID3D11Device* a_device)
 	return true;
 }
 
+bool CDoF::DoFRenderer::EnsureBaseResources(
+	ID3D11Device* a_device,
+	const D3D11_TEXTURE2D_DESC& a_inputDescription,
+	std::uint32_t a_renderWidth,
+	std::uint32_t a_renderHeight)
+{
+	const auto configurationMatches =
+		resources_.device == a_device &&
+		resources_.width == a_renderWidth &&
+		resources_.height == a_renderHeight &&
+		resources_.colorFormat == a_inputDescription.Format;
+	if (!configurationMatches) {
+		resources_ = {};
+		resources_.device = a_device;
+		resources_.width = a_renderWidth;
+		resources_.height = a_renderHeight;
+		resources_.colorFormat = a_inputDescription.Format;
+	}
+
+	if (shadersReady_ && shaderDevice_ != a_device) {
+		shaders_ = {};
+		shadersReady_ = false;
+		shaderDevice_ = nullptr;
+	}
+	if (silhouetteShaderDevice_ && silhouetteShaderDevice_ != a_device) {
+		silhouetteShader_.Reset();
+		silhouetteShaderReady_ = false;
+		silhouetteShaderDevice_ = nullptr;
+		silhouetteDisabled_ = false;
+	}
+	if (resources_.baseReady) {
+		return true;
+	}
+	if (!CreateTexture(
+			a_device,
+			resources_.output,
+			a_inputDescription.Format,
+			a_renderWidth,
+			a_renderHeight) ||
+		!CreateConstantBuffer(a_device, sizeof(SharedConstants), resources_.sharedConstants)) {
+		resources_.output = {};
+		resources_.sharedConstants.Reset();
+		return false;
+	}
+	resources_.baseReady = true;
+	return true;
+}
+
 bool CDoF::DoFRenderer::EnsureResources(
 	ID3D11Device* a_device,
 	const D3D11_TEXTURE2D_DESC& a_inputDescription,
 	std::uint32_t a_renderWidth,
 	std::uint32_t a_renderHeight)
 {
-	if (resources_.device == a_device &&
-		resources_.width == a_renderWidth &&
-		resources_.height == a_renderHeight &&
-		resources_.colorFormat == a_inputDescription.Format) {
+	if (!EnsureBaseResources(
+			a_device,
+			a_inputDescription,
+			a_renderWidth,
+			a_renderHeight)) {
+		return false;
+	}
+	if (resources_.dofReady) {
 		return true;
 	}
 
+	// Preserve only the base resources shared with silhouette mode. Any partial
+	// DoF allocation from an earlier failure is discarded before retrying.
+	auto output = std::move(resources_.output);
+	auto sharedConstants = std::move(resources_.sharedConstants);
 	resources_ = {};
 	resources_.device = a_device;
 	resources_.width = a_renderWidth;
 	resources_.height = a_renderHeight;
 	resources_.colorFormat = a_inputDescription.Format;
+	resources_.baseReady = true;
+	resources_.output = std::move(output);
+	resources_.sharedConstants = std::move(sharedConstants);
 
-	if (shadersReady_ && shaderDevice_ != a_device) {
-		shaders_ = {};
-		shadersReady_ = false;
-	}
 	if (!shadersReady_) {
 		shadersReady_ = CompileShaders(a_device);
 		if (!shadersReady_) {
@@ -459,8 +533,7 @@ bool CDoF::DoFRenderer::EnsureResources(
 		return CreateTexture(a_device, a_texture, DXGI_FORMAT_R32_FLOAT, a_half ? halfWidth : width, a_half ? halfHeight : height);
 	};
 
-	if (!createColor(resources_.output, false) ||
-		!createColor(resources_.preBlurred, true) ||
+	if (!createColor(resources_.preBlurred, true) ||
 		!CreateTexture(a_device, resources_.farGatherColor1, color, quarterWidth, quarterHeight) ||
 		!CreateTexture(a_device, resources_.farGatherColor2, color, eighthWidth, eighthHeight) ||
 		!CreateTexture(a_device, resources_.farGatherColor3, color, sixteenthWidth, sixteenthHeight) ||
@@ -477,8 +550,7 @@ bool CDoF::DoFRenderer::EnsureResources(
 		!createFloat(resources_.cocTileNeighbor, false) ||
 		!createFloat(resources_.cocBlur1, true) ||
 		!createFloat(resources_.cocBlur2, true) ||
-		!CreateConstantBuffer(a_device, sizeof(DoFConstants), resources_.dofConstants) ||
-		!CreateConstantBuffer(a_device, sizeof(SharedConstants), resources_.sharedConstants)) {
+		!CreateConstantBuffer(a_device, sizeof(DoFConstants), resources_.dofConstants)) {
 		return false;
 	}
 
@@ -491,6 +563,7 @@ bool CDoF::DoFRenderer::EnsureResources(
 	if (Failed(a_device->CreateSamplerState(&sampler, resources_.linearSampler.GetAddressOf()), "CreateSamplerState")) {
 		return false;
 	}
+	resources_.dofReady = true;
 
 	spdlog::info(
 		"Created depth-of-field resources: {}x{}, format {} (input allocation {}x{})",
@@ -502,11 +575,53 @@ bool CDoF::DoFRenderer::EnsureResources(
 	return true;
 }
 
+bool CDoF::DoFRenderer::EnsureSilhouetteResources(
+	ID3D11Device* a_device,
+	const D3D11_TEXTURE2D_DESC& a_inputDescription,
+	std::uint32_t a_renderWidth,
+	std::uint32_t a_renderHeight)
+{
+	if (!EnsureBaseResources(
+			a_device,
+			a_inputDescription,
+			a_renderWidth,
+			a_renderHeight)) {
+		return false;
+	}
+
+	if (!silhouetteShaderReady_) {
+		const std::filesystem::path path = L"Data\\Shaders\\CinematicDoFStandalone\\DoF\\dof.cs.hlsl";
+		silhouetteShader_ = CompileComputeShader(a_device, path, "CS_Silhouette");
+		if (!silhouetteShader_) {
+			spdlog::error("Silhouette shader compilation failed; normal DoF remains available");
+			return false;
+		}
+		silhouetteShaderReady_ = true;
+		silhouetteShaderDevice_ = a_device;
+		spdlog::info("Compiled independent silhouette compute pass");
+	}
+
+	if (!resources_.silhouetteConstants &&
+		!CreateConstantBuffer(a_device, sizeof(SilhouetteConstants), resources_.silhouetteConstants)) {
+		spdlog::error("Silhouette constant-buffer creation failed; normal DoF remains available");
+		return false;
+	}
+	return true;
+}
+
 bool CDoF::DoFRenderer::IsMenuBlocked(const Settings& a_settings) const
 {
 	if (!a_settings.disableInMenus) {
 		return false;
 	}
+	const auto ui = RE::UI::GetSingleton();
+	return ui && (ui->IsMenuOpen(RE::MainMenu::MENU_NAME) ||
+		ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME) ||
+		ui->IsMenuOpen(RE::MapMenu::MENU_NAME));
+}
+
+bool CDoF::DoFRenderer::IsSilhouetteMenuBlocked() const
+{
 	const auto ui = RE::UI::GetSingleton();
 	return ui && (ui->IsMenuOpen(RE::MainMenu::MENU_NAME) ||
 		ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME) ||
@@ -735,9 +850,104 @@ void CDoF::DoFRenderer::ApplyDepthStrength(Settings& a_settings, float a_strengt
 	a_settings.nearPlaneMaxBlur = std::clamp(a_settings.nearPlaneMaxBlur * strength, 0.0F, 4.0F);
 }
 
+void CDoF::DoFRenderer::ApplySilhouette()
+{
+	try {
+		const auto renderer = RE::BSGraphics::Renderer::GetSingleton();
+		if (!renderer) {
+			return;
+		}
+
+		auto& rendererData = renderer->GetRuntimeData();
+		auto device = reinterpret_cast<ID3D11Device*>(rendererData.forwarder);
+		auto context = reinterpret_cast<ID3D11DeviceContext*>(rendererData.context);
+		if (!device || !context) {
+			return;
+		}
+
+		auto& mainTarget = rendererData.renderTargets[RE::RENDER_TARGETS::kMAIN];
+		auto& depthStencils = renderer->GetDepthStencilData().depthStencils;
+		auto mainDepth = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV;
+		if (!mainTarget.texture || !mainDepth) {
+			return;
+		}
+
+		D3D11_TEXTURE2D_DESC inputDescription{};
+		mainTarget.texture->GetDesc(&inputDescription);
+		if (!IsCompatibleDepth(mainDepth, inputDescription)) {
+			return;
+		}
+		const auto renderArea = GetActiveRenderArea(context, inputDescription);
+		if (inputDescription.SampleDesc.Count != 1 ||
+			!EnsureSilhouetteResources(device, inputDescription, renderArea.width, renderArea.height)) {
+			silhouetteDisabled_ = true;
+			spdlog::error(
+				"Silhouette mode disabled because its GPU resources could not be created; normal DoF remains available");
+			return;
+		}
+
+		ComPtr<ID3D11RenderTargetView> currentRTV;
+		ComPtr<ID3D11DepthStencilView> currentDSV;
+		context->OMGetRenderTargets(1, currentRTV.GetAddressOf(), currentDSV.GetAddressOf());
+		ID3D11RenderTargetView* restoreRTV = currentRTV.Get();
+		OutputMergerRestore restore{ context, restoreRTV, currentDSV.Get() };
+		context->OMSetRenderTargets(0, nullptr, nullptr);
+
+		if (!DispatchSilhouette(
+				context,
+				mainDepth,
+				silhouetteSettings_,
+				inputDescription.Width,
+				inputDescription.Height,
+				renderArea.left,
+				renderArea.top)) {
+			silhouetteDisabled_ = true;
+			spdlog::error(
+				"Silhouette mode disabled after a constant-buffer update failure; normal DoF remains available");
+			return;
+		}
+
+		const D3D11_BOX outputBox{
+			0U,
+			0U,
+			0U,
+			renderArea.width,
+			renderArea.height,
+			1U
+		};
+		context->CopySubresourceRegion(
+			mainTarget.texture,
+			0,
+			renderArea.left,
+			renderArea.top,
+			0,
+			resources_.output.resource.Get(),
+			0,
+			&outputBox);
+		if (!loggedFirstSilhouetteFrame_) {
+			loggedFirstSilhouetteFrame_ = true;
+			spdlog::info("First independent silhouette frame applied successfully");
+		}
+	} catch (const std::exception& error) {
+		silhouetteDisabled_ = true;
+		spdlog::error(
+			"Silhouette render exception; only silhouette mode was disabled: {}",
+			error.what());
+	} catch (...) {
+		silhouetteDisabled_ = true;
+		spdlog::error("Unknown silhouette render exception; only silhouette mode was disabled");
+	}
+}
+
 void CDoF::DoFRenderer::Apply()
 {
 	std::scoped_lock lock(mutex_);
+	if (silhouetteSettings_.enabled) {
+		if (!silhouetteDisabled_ && !IsSilhouetteMenuBlocked()) {
+			ApplySilhouette();
+		}
+		return;
+	}
 	if (!settings_.enabled || permanentlyDisabled_) {
 		return;
 	}
@@ -1369,4 +1579,73 @@ void CDoF::DoFRenderer::Dispatch(
 	a_context->CSSetConstantBuffers(5, 1, &nullBuffer);
 	a_context->CSSetSamplers(0, 1, &nullSampler);
 	a_context->CSSetShader(nullptr, nullptr, 0);
+}
+
+bool CDoF::DoFRenderer::DispatchSilhouette(
+	ID3D11DeviceContext* a_context,
+	ID3D11ShaderResourceView* a_skyMaskDepth,
+	const SilhouetteSettings& a_settings,
+	std::uint32_t a_inputWidth,
+	std::uint32_t a_inputHeight,
+	std::uint32_t a_renderLeft,
+	std::uint32_t a_renderTop)
+{
+	const SilhouetteConstants silhouetteData{
+		.foregroundColor = {
+			std::clamp(a_settings.foregroundColor[0], 0.0F, 1.0F),
+			std::clamp(a_settings.foregroundColor[1], 0.0F, 1.0F),
+			std::clamp(a_settings.foregroundColor[2], 0.0F, 1.0F),
+			1.0F },
+		.backgroundColor = {
+			std::clamp(a_settings.backgroundColor[0], 0.0F, 1.0F),
+			std::clamp(a_settings.backgroundColor[1], 0.0F, 1.0F),
+			std::clamp(a_settings.backgroundColor[2], 0.0F, 1.0F),
+			1.0F }
+	};
+	const SharedConstants sharedData{
+		.cameraData = GetCameraData(),
+		.bufferDimensions = {
+			static_cast<float>(resources_.width),
+			static_cast<float>(resources_.height),
+			1.0F / static_cast<float>(resources_.width),
+			1.0F / static_cast<float>(resources_.height) },
+		.inputRegion = {
+			static_cast<float>(a_renderLeft),
+			static_cast<float>(a_renderTop),
+			1.0F / static_cast<float>(a_inputWidth),
+			1.0F / static_cast<float>(a_inputHeight) }
+	};
+
+	if (!UpdateConstantBuffer(
+			a_context,
+			resources_.silhouetteConstants.Get(),
+			&silhouetteData,
+			sizeof(silhouetteData)) ||
+		!UpdateConstantBuffer(
+			a_context,
+			resources_.sharedConstants.Get(),
+			&sharedData,
+			sizeof(sharedData))) {
+		return false;
+	}
+
+	ID3D11Buffer* silhouetteCB = resources_.silhouetteConstants.Get();
+	ID3D11Buffer* sharedCB = resources_.sharedConstants.Get();
+	ID3D11UnorderedAccessView* output = resources_.output.uav.Get();
+	a_context->CSSetConstantBuffers(2, 1, &silhouetteCB);
+	a_context->CSSetConstantBuffers(5, 1, &sharedCB);
+	a_context->CSSetShaderResources(11, 1, &a_skyMaskDepth);
+	a_context->CSSetUnorderedAccessViews(0, 1, &output, nullptr);
+	a_context->CSSetShader(silhouetteShader_.Get(), nullptr, 0);
+	a_context->Dispatch((resources_.width + 7U) >> 3U, (resources_.height + 7U) >> 3U, 1);
+
+	ID3D11ShaderResourceView* nullSRV = nullptr;
+	ID3D11UnorderedAccessView* nullUAV = nullptr;
+	ID3D11Buffer* nullBuffer = nullptr;
+	a_context->CSSetShaderResources(11, 1, &nullSRV);
+	a_context->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
+	a_context->CSSetConstantBuffers(2, 1, &nullBuffer);
+	a_context->CSSetConstantBuffers(5, 1, &nullBuffer);
+	a_context->CSSetShader(nullptr, nullptr, 0);
+	return true;
 }

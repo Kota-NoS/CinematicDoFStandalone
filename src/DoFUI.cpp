@@ -12,6 +12,7 @@ namespace
 	Settings uiSettings{};
 	TargetFocusSettings targetFocusSettings{};
 	ModeSettings modeSettings{};
+	SilhouetteSettings silhouetteSettings{};
 	InterfaceSettings interfaceSettings{};
 	HotkeySettings hotkeySettings{};
 	std::mutex uiMutex;
@@ -62,6 +63,24 @@ namespace
 		const auto label = std::string(Localized(a_englishLabel, a_japaneseLabel));
 		const auto changed = MenuFramework::SliderFloat(label.c_str(), a_value, a_min, a_max, a_format);
 		MenuFramework::ItemTooltip(Localized(a_englishHelp, a_japaneseHelp));
+		return changed;
+	}
+
+	bool ColorEditWithHelp(
+		const char* a_englishLabel,
+		const char* a_japaneseLabel,
+		std::array<float, 3>& a_color,
+		const char* a_englishHelp,
+		const char* a_japaneseHelp)
+	{
+		const auto label = std::string(Localized(a_englishLabel, a_japaneseLabel));
+		const auto changed = MenuFramework::ColorEdit3(label.c_str(), a_color.data());
+		MenuFramework::ItemTooltip(Localized(a_englishHelp, a_japaneseHelp));
+		if (changed) {
+			for (auto& component : a_color) {
+				component = std::clamp(component, 0.0F, 1.0F);
+			}
+		}
 		return changed;
 	}
 
@@ -187,6 +206,7 @@ namespace
 	{
 		DoFRenderer::GetSingleton().SetSettings(uiSettings);
 		DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
+		DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
 		ApplyTargetFocus();
 		SetStatus("Live values changed (not saved).", "現在値を変更しました（INI未保存）。");
 	}
@@ -828,6 +848,7 @@ namespace
 		if (MenuFramework::Button(Localized("Save Startup Settings", "次回起動設定を保存"))) {
 			if (SaveSettings(uiSettings) && SaveTargetFocusSettings(targetFocusSettings) &&
 				SaveModeSettings(modeSettings) &&
+				SaveSilhouetteSettings(silhouetteSettings) &&
 				SaveInterfaceSettings(interfaceSettings)) {
 				SetStatus("Saved startup settings to CinematicDoFStandalone.ini.", "次回起動設定をCinematicDoFStandalone.iniへ保存しました。");
 			} else {
@@ -835,13 +856,14 @@ namespace
 			}
 		}
 		MenuFramework::ItemTooltip(Localized(
-			"Saves the master switch, normal-gameplay mode, DoF, dialogue-focus, target-tracking, and interface-language values currently applied on screen for the next launch. It does not overwrite any preset slot.",
-			"現在映像へ適用中の主スイッチ・会話外DoF・DoF・会話フォーカス・対象追従設定とUI言語を、次回起動時の設定として保存します。プリセット枠は上書きしません。"));
+			"Saves the master switch, normal-gameplay mode, DoF, silhouette, dialogue-focus, target-tracking, and interface-language values currently applied on screen for the next launch. It does not overwrite any preset slot.",
+			"現在映像へ適用中の主スイッチ・会話外DoF・DoF・シルエット・会話フォーカス・対象追従設定とUI言語を、次回起動時の設定として保存します。プリセット枠は上書きしません。"));
 		MenuFramework::SameLine();
 		if (MenuFramework::Button(Localized("Reload INI", "INIを再読み込み"))) {
 			uiSettings = LoadSettings();
 			targetFocusSettings = LoadTargetFocusSettings();
 			modeSettings = LoadModeSettings();
+			silhouetteSettings = LoadSilhouetteSettings();
 			interfaceSettings = LoadInterfaceSettings();
 			hotkeySettings = LoadHotkeySettings();
 			waitingForHotkey = false;
@@ -849,6 +871,7 @@ namespace
 			editingPresetIndex = FindMatchingPreset();
 			DoFRenderer::GetSingleton().SetSettings(uiSettings);
 			DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
+			DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
 			ApplyTargetFocus();
 			SetStatus(
 				"Reloaded current settings and preset slots from INI.",
@@ -1060,11 +1083,42 @@ namespace
 		return changed;
 	}
 
+	bool RenderSilhouetteControls()
+	{
+		bool changed{};
+		MenuFramework::SeparatorText(Localized("Silhouette Photo Mode", "シルエット撮影モード"));
+		changed |= CheckboxWithHelp(
+			"Enable Silhouette Mode",
+			"シルエット撮影モードを有効にする",
+			&silhouetteSettings.enabled,
+			"Renders an independent two-color depth silhouette. It works even when the DoF master switch is off and leaves all DoF and preset values unchanged.",
+			"現在のメイン深度を使い、独立した2色のシルエットを描画します。DoF本体がOFFでも使用でき、DoF設定やプリセットは変更しません。");
+		changed |= ColorEditWithHelp(
+			"Silhouette Color",
+			"シルエット色",
+			silhouetteSettings.foregroundColor,
+			"Color used for pixels where world geometry writes depth.",
+			"地形や人物など、深度が書き込まれている領域の色です。");
+		changed |= ColorEditWithHelp(
+			"Background Color",
+			"背景色",
+			silhouetteSettings.backgroundColor,
+			"Color used for clear-depth sky pixels. Water, moons, particles, and transparent objects follow whether they write to the current main depth.",
+			"深度が未描画の空に使う色です。水面・月・パーティクル・半透明物は、現在のメイン深度へ書き込むかどうかで分類されます。");
+		MenuFramework::ItemTooltip(Localized(
+			"Silhouette mode always stops in the main menu, loading screens, and world/local maps, independently of the normal DoF menu setting.",
+			"通常DoFのメニュー設定とは別に、タイトル・ロード・ワールドマップ・ローカルマップでは常に停止します。"));
+		return changed;
+	}
+
 	void __stdcall RenderMainPage()
 	{
 		std::scoped_lock lock(uiMutex);
 		const auto fontPushed = PushLocalizedFont();
 		if (RenderModeControls()) {
+			ApplyLive();
+		}
+		if (RenderSilhouetteControls()) {
 			ApplyLive();
 		}
 		if (RenderCoreControls()) {
@@ -1073,7 +1127,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.0");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette Test 3");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}
@@ -1087,12 +1141,14 @@ void CDoF::UI::Initialize(Settings a_settings)
 	uiSettings = a_settings;
 	targetFocusSettings = LoadTargetFocusSettings();
 	modeSettings = LoadModeSettings();
+	silhouetteSettings = LoadSilhouetteSettings();
 	interfaceSettings = LoadInterfaceSettings();
 	hotkeySettings = LoadHotkeySettings();
 	japaneseFontEnabled = IsJapaneseFontEnabled();
 	LoadPresets();
 	editingPresetIndex = FindMatchingPreset();
 	DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
+	DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
 	ApplyTargetFocus();
 	initialized = true;
 }

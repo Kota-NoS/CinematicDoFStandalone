@@ -171,6 +171,12 @@ cbuffer DoFCB : register(b1)
 	uint NativeMainDepthAvailable;
 };
 
+cbuffer SilhouetteCB : register(b2)
+{
+	float4 SilhouetteColor;
+	float4 SilhouetteBackgroundColor;
+};
+
 #define SENSOR_SIZE 0.024f
 
 static const float blurPixelSizeLength = length(SharedData::BufferDim.zw) * 0.5f;
@@ -284,6 +290,16 @@ float GetMoonFarDepthProtection(uint2 renderPixel)
 	float rawDepth = SkyMaskDepthTexture[GetInputPixel(renderPixel)];
 	float clearGap = 1.0f - rawDepth;
 	return rawDepth < 1.0f && clearGap > 0.0f && clearGap < 1e-6f ? 1.0f : 0.0f;
+}
+
+[numthreads(8, 8, 1)] void CS_Silhouette(uint2 DTid : SV_DispatchThreadID)
+{
+	if (IsOutsideFullResolution(DTid))
+		return;
+
+	float skyMask = GetSkyClearDepthMask(DTid);
+	float3 color = lerp(SilhouetteColor.rgb, SilhouetteBackgroundColor.rgb, skyMask);
+	RWTexOut[DTid] = float4(color, 1.0f);
 }
 
 float GetSkyHighlightEligibility(float2 renderUV)

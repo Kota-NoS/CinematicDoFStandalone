@@ -6,6 +6,7 @@ namespace
 	constexpr auto kSection = L"DepthOfField";
 	constexpr auto kTargetFocusSection = L"TargetFocus";
 	constexpr auto kModeSection = L"Modes";
+	constexpr auto kSilhouetteSection = L"Silhouette";
 	constexpr auto kInterfaceSection = L"Interface";
 	constexpr auto kHotkeySection = L"Hotkeys";
 
@@ -319,6 +320,45 @@ bool CDoF::SaveModeSettings(const ModeSettings& a_settings)
 	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
 	if (success) {
 		spdlog::info("Mode settings saved");
+	}
+	return success;
+}
+
+CDoF::SilhouetteSettings CDoF::LoadSilhouetteSettings()
+{
+	SilhouetteSettings result{};
+	result.enabled = ReadBool(kSilhouetteSection, L"Enabled", result.enabled);
+	result.foregroundColor = {
+		Clamp(ReadFloat(kSilhouetteSection, L"ForegroundR", result.foregroundColor[0]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kSilhouetteSection, L"ForegroundG", result.foregroundColor[1]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kSilhouetteSection, L"ForegroundB", result.foregroundColor[2]), 0.0F, 1.0F)
+	};
+	result.backgroundColor = {
+		Clamp(ReadFloat(kSilhouetteSection, L"BackgroundR", result.backgroundColor[0]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kSilhouetteSection, L"BackgroundG", result.backgroundColor[1]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kSilhouetteSection, L"BackgroundB", result.backgroundColor[2]), 0.0F, 1.0F)
+	};
+	spdlog::info(
+		"Silhouette settings loaded: enabled={}, foreground=({:.3f}, {:.3f}, {:.3f}), background=({:.3f}, {:.3f}, {:.3f})",
+		result.enabled,
+		result.foregroundColor[0], result.foregroundColor[1], result.foregroundColor[2],
+		result.backgroundColor[0], result.backgroundColor[1], result.backgroundColor[2]);
+	return result;
+}
+
+bool CDoF::SaveSilhouetteSettings(const SilhouetteSettings& a_settings)
+{
+	bool success = true;
+	success = WriteBool(kSilhouetteSection, L"Enabled", a_settings.enabled) && success;
+	success = WriteFloat(kSilhouetteSection, L"ForegroundR", std::clamp(a_settings.foregroundColor[0], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"ForegroundG", std::clamp(a_settings.foregroundColor[1], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"ForegroundB", std::clamp(a_settings.foregroundColor[2], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"BackgroundR", std::clamp(a_settings.backgroundColor[0], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"BackgroundG", std::clamp(a_settings.backgroundColor[1], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"BackgroundB", std::clamp(a_settings.backgroundColor[2], 0.0F, 1.0F)) && success;
+	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
+	if (success) {
+		spdlog::info("Silhouette settings saved");
 	}
 	return success;
 }

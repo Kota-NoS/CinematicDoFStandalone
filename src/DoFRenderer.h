@@ -11,6 +11,7 @@ namespace CDoF
 
 		void SetSettings(Settings a_settings);
 		void SetModeSettings(ModeSettings a_settings);
+		void SetSilhouetteSettings(SilhouetteSettings a_settings);
 		void SetTargetFocus(
 			TargetFocusSettings a_settings,
 			Settings a_dialogueLensSettings);
@@ -45,6 +46,8 @@ namespace CDoF
 			std::uint32_t width{};
 			std::uint32_t height{};
 			DXGI_FORMAT colorFormat{ DXGI_FORMAT_UNKNOWN };
+			bool baseReady{ false };
+			bool dofReady{ false };
 			bool focusInitialized{ false };
 
 			Texture output;
@@ -68,6 +71,7 @@ namespace CDoF
 			ComPtr<ID3D11Texture2D> nativeMainDepthResource;
 			ComPtr<ID3D11ShaderResourceView> nativeMainDepthSRV;
 			ComPtr<ID3D11Buffer> dofConstants;
+			ComPtr<ID3D11Buffer> silhouetteConstants;
 			ComPtr<ID3D11Buffer> sharedConstants;
 			ComPtr<ID3D11SamplerState> linearSampler;
 		};
@@ -96,6 +100,16 @@ namespace CDoF
 			const D3D11_TEXTURE2D_DESC& a_inputDescription,
 			std::uint32_t a_renderWidth,
 			std::uint32_t a_renderHeight);
+		bool EnsureBaseResources(
+			ID3D11Device* a_device,
+			const D3D11_TEXTURE2D_DESC& a_inputDescription,
+			std::uint32_t a_renderWidth,
+			std::uint32_t a_renderHeight);
+		bool EnsureSilhouetteResources(
+			ID3D11Device* a_device,
+			const D3D11_TEXTURE2D_DESC& a_inputDescription,
+			std::uint32_t a_renderWidth,
+			std::uint32_t a_renderHeight);
 		bool CompileShaders(ID3D11Device* a_device);
 		bool CreateTexture(ID3D11Device* a_device, Texture& a_texture, DXGI_FORMAT a_format, std::uint32_t a_width, std::uint32_t a_height);
 		bool CreateConstantBuffer(ID3D11Device* a_device, std::uint32_t a_size, ComPtr<ID3D11Buffer>& a_buffer);
@@ -115,7 +129,17 @@ namespace CDoF
 			std::uint32_t a_inputHeight,
 			std::uint32_t a_renderLeft,
 			std::uint32_t a_renderTop);
+		bool DispatchSilhouette(
+			ID3D11DeviceContext* a_context,
+			ID3D11ShaderResourceView* a_skyMaskDepth,
+			const SilhouetteSettings& a_settings,
+			std::uint32_t a_inputWidth,
+			std::uint32_t a_inputHeight,
+			std::uint32_t a_renderLeft,
+			std::uint32_t a_renderTop);
 		bool IsMenuBlocked(const Settings& a_settings) const;
+		bool IsSilhouetteMenuBlocked() const;
+		void ApplySilhouette();
 		std::optional<TargetFocusSample> GetDialogueTargetFocus() const;
 		std::optional<TargetFocusSample> GetPlayerTargetFocus() const;
 		std::optional<TargetFocusSample> GetConsoleTargetFocus() const;
@@ -134,14 +158,20 @@ namespace CDoF
 
 		Settings settings_{};
 		ModeSettings modeSettings_{};
+		SilhouetteSettings silhouetteSettings_{};
 		TargetFocusSettings targetFocusSettings_{};
 		Settings dialogueLensSettings_{};
 		Resources resources_{};
 		Shaders shaders_{};
+		ComPtr<ID3D11ComputeShader> silhouetteShader_;
 		ID3D11Device* shaderDevice_{};
+		ID3D11Device* silhouetteShaderDevice_{};
 		bool shadersReady_{ false };
+		bool silhouetteShaderReady_{ false };
 		bool permanentlyDisabled_{ false };
+		bool silhouetteDisabled_{ false };
 		bool loggedFirstFrame_{ false };
+		bool loggedFirstSilhouetteFrame_{ false };
 		bool depthPathChecked_{ false };
 		bool useLowSpecDepthFallback_{ false };
 		bool useStandaloneNonActorTargetGuard_{ false };

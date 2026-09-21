@@ -26,6 +26,7 @@ namespace CDoF::MenuFramework
 	void Text(const char* a_text);
 	void SeparatorText(const char* a_text);
 	bool Checkbox(const char* a_label, bool* a_value);
+	bool ColorEdit3(const char* a_label, float* a_color);
 	bool SliderFloat(const char* a_label, float* a_value, float a_min, float a_max, const char* a_format);
 	bool Button(const char* a_label);
 	void SameLine();

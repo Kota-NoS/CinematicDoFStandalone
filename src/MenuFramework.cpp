@@ -99,6 +99,13 @@ bool CDoF::MenuFramework::Checkbox(const char* a_label, bool* a_value)
 	return function ? function(a_label, a_value) : false;
 }
 
+bool CDoF::MenuFramework::ColorEdit3(const char* a_label, float* a_color)
+{
+	using Function = bool (*)(const char*, float*, int);
+	const auto function = Resolve<Function>("igColorEdit3");
+	return function ? function(a_label, a_color, 0) : false;
+}
+
 bool CDoF::MenuFramework::SliderFloat(
 	const char* a_label,
 	float* a_value,

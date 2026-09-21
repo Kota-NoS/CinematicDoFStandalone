@@ -59,6 +59,13 @@ namespace CDoF
 		bool normalGameplayEnabled{ true };
 	};
 
+	struct SilhouetteSettings
+	{
+		bool enabled{ false };
+		std::array<float, 3> foregroundColor{ 0.0F, 0.0F, 0.0F };
+		std::array<float, 3> backgroundColor{ 1.0F, 0.62F, 0.12F };
+	};
+
 	struct InterfaceSettings
 	{
 		bool japanese{ false };
@@ -79,6 +86,8 @@ namespace CDoF
 	bool SaveTargetFocusSettings(const TargetFocusSettings& a_settings);
 	ModeSettings LoadModeSettings();
 	bool SaveModeSettings(const ModeSettings& a_settings);
+	SilhouetteSettings LoadSilhouetteSettings();
+	bool SaveSilhouetteSettings(const SilhouetteSettings& a_settings);
 	TargetFocusSettings LoadPresetTargetFocusSettings(
 		const wchar_t* a_section,
 		TargetFocusSettings a_defaults);
