@@ -149,7 +149,7 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	// behavior match every other Menu Framework button. The visible person is
 	// drawn over an ID-only label and therefore does not depend on font glyphs.
 	// An ASCII S remains as a compatibility fallback for older frameworks.
-	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ 28.0F, 0.0F });
+	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ 28.0F, 28.0F });
 	if (!canDraw) {
 		return pressed;
 	}
@@ -160,16 +160,38 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	getItemMax(&maximum);
 	const auto width = std::max(maximum.x - minimum.x, 1.0F);
 	const auto height = std::max(maximum.y - minimum.y, 1.0F);
-	const auto centerX = (minimum.x + maximum.x) * 0.5F;
-	const auto iconColor = a_active ? 0xFF1F9EFFU : 0xFFFFFFFFU;  // orange or white, ABGR
-	const auto headRadius = std::max(1.5F, std::min(width, height) * 0.115F);
-	const ImVec2 headCenter{ centerX, minimum.y + height * 0.34F };
-	const ImVec2 bodyMinimum{ centerX - width * 0.19F, minimum.y + height * 0.55F };
-	const ImVec2 bodyMaximum{ centerX + width * 0.19F, maximum.y - height * 0.16F };
+	const auto side = std::min(width, height);
+	const auto left = minimum.x + (width - side) * 0.5F;
+	const auto top = minimum.y + (height - side) * 0.5F;
+	const auto outerInset = std::max(2.0F, side * 0.10F);
+	const auto activeBorder = a_active ? std::max(1.5F, side * 0.075F) : 0.0F;
+	const ImVec2 tileMinimum{ left + outerInset, top + outerInset };
+	const ImVec2 tileMaximum{ left + side - outerInset, top + side - outerInset };
+	const ImVec2 whiteMinimum{ tileMinimum.x + activeBorder, tileMinimum.y + activeBorder };
+	const ImVec2 whiteMaximum{ tileMaximum.x - activeBorder, tileMaximum.y - activeBorder };
+	const auto tileWidth = std::max(whiteMaximum.x - whiteMinimum.x, 1.0F);
+	const auto tileHeight = std::max(whiteMaximum.y - whiteMinimum.y, 1.0F);
+	const auto centerX = (whiteMinimum.x + whiteMaximum.x) * 0.5F;
+	const auto black = 0xFF000000U;
+	const auto white = 0xFFFFFFFFU;
+	const auto orange = 0xFF1F9EFFU;  // ABGR
+	const auto headRadius = std::max(2.0F, std::min(tileWidth, tileHeight) * 0.17F);
+	const ImVec2 headCenter{ centerX, whiteMinimum.y + tileHeight * 0.34F };
+	const ImVec2 bodyMinimum{ whiteMinimum.x + tileWidth * 0.23F, whiteMinimum.y + tileHeight * 0.47F };
+	const ImVec2 bodyMaximum{ whiteMaximum.x - tileWidth * 0.23F, whiteMinimum.y + tileHeight * 0.88F };
 
 	if (auto* drawList = getDrawList()) {
-		addCircleFilled(drawList, headCenter, headRadius, iconColor, 12);
-		addRectFilled(drawList, bodyMinimum, bodyMaximum, iconColor, headRadius, 0);
+		if (a_active) {
+			addRectFilled(drawList, tileMinimum, tileMaximum, orange, 2.0F, 0);
+		}
+		addRectFilled(drawList, whiteMinimum, whiteMaximum, white, 1.5F, 0);
+		addRectFilled(drawList, bodyMinimum, bodyMaximum, black, headRadius, 0);
+		addCircleFilled(drawList, headCenter, headRadius, black, 16);
+		if (a_active) {
+			const auto lampRadius = std::max(1.4F, tileWidth * 0.085F);
+			const ImVec2 lampCenter{ whiteMaximum.x - lampRadius * 1.35F, whiteMinimum.y + lampRadius * 1.35F };
+			addCircleFilled(drawList, lampCenter, lampRadius, orange, 12);
+		}
 	}
 	return pressed;
 }
