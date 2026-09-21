@@ -128,7 +128,7 @@ bool CDoF::MenuFramework::Button(const char* a_label)
 bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 {
 	using ButtonFunction = bool (*)(const char*, ImVec2);
-	using GetItemRectFunction = ImVec2 (*)();
+	using GetItemRectFunction = void (*)(ImVec2*);
 	using GetDrawListFunction = void* (*)();
 	using AddCircleFilledFunction = void (*)(void*, ImVec2, float, std::uint32_t, int);
 	using AddRectFilledFunction = void (*)(void*, ImVec2, ImVec2, std::uint32_t, float, int);
@@ -154,8 +154,10 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 		return pressed;
 	}
 
-	const auto minimum = getItemMin();
-	const auto maximum = getItemMax();
+	ImVec2 minimum{};
+	ImVec2 maximum{};
+	getItemMin(&minimum);
+	getItemMax(&maximum);
 	const auto width = std::max(maximum.x - minimum.x, 1.0F);
 	const auto height = std::max(maximum.y - minimum.y, 1.0F);
 	const auto centerX = (minimum.x + maximum.x) * 0.5F;
