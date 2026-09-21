@@ -127,6 +127,7 @@ namespace
 		a_defaults.nearPlaneMaxBlur = Clamp(ReadFloat(a_section, L"NearPlaneMaxBlur", a_defaults.nearPlaneMaxBlur), 0.0F, 4.0F);
 		a_defaults.enableFirstPersonNearBlur = ReadBool(
 			a_section, L"EnableFirstPersonNearBlur", a_defaults.enableFirstPersonNearBlur);
+		a_defaults.keepSkySharp = ReadBool(a_section, L"KeepSkySharp", a_defaults.keepSkySharp);
 		a_defaults.blurQuality = Clamp(ReadFloat(a_section, L"BlurQuality", a_defaults.blurQuality), 2.0F, 30.0F);
 		a_defaults.nearFarDistanceCompensation = Clamp(ReadFloat(a_section, L"NearFarDistanceCompensation", a_defaults.nearFarDistanceCompensation), 1.0F, 5.0F);
 		a_defaults.bokehBusyFactor = Clamp(ReadFloat(a_section, L"BokehBusyFactor", a_defaults.bokehBusyFactor), 0.0F, 1.0F);
@@ -163,6 +164,7 @@ namespace
 		success = WriteFloat(a_section, L"FarPlaneMaxBlur", a_settings.farPlaneMaxBlur) && success;
 		success = WriteFloat(a_section, L"NearPlaneMaxBlur", a_settings.nearPlaneMaxBlur) && success;
 		success = WriteBool(a_section, L"EnableFirstPersonNearBlur", a_settings.enableFirstPersonNearBlur) && success;
+		success = WriteBool(a_section, L"KeepSkySharp", a_settings.keepSkySharp) && success;
 		success = WriteFloat(a_section, L"BlurQuality", a_settings.blurQuality) && success;
 		success = WriteFloat(a_section, L"NearFarDistanceCompensation", a_settings.nearFarDistanceCompensation) && success;
 		success = WriteFloat(a_section, L"BokehBusyFactor", a_settings.bokehBusyFactor) && success;
@@ -253,7 +255,15 @@ bool CDoF::SaveSettings(const Settings& a_settings)
 
 CDoF::Settings CDoF::LoadPresetSettings(const wchar_t* a_section, Settings a_defaults)
 {
-	return SectionExists(a_section) ? LoadSection(a_section, a_defaults) : a_defaults;
+	if (!SectionExists(a_section)) {
+		return a_defaults;
+	}
+
+	// Presets saved before KeepSkySharp existed must retain their original sky
+	// blur. New built-in presets can still opt in by setting their own default,
+	// while an explicitly stored KeepSkySharp value continues to win here.
+	a_defaults.keepSkySharp = false;
+	return LoadSection(a_section, a_defaults);
 }
 
 bool CDoF::SavePresetSettings(const wchar_t* a_section, const Settings& a_settings)

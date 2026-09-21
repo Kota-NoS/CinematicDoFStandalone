@@ -1,6 +1,6 @@
-# CinematicDoFStandalone 1.0.0
+# CinematicDoFStandalone 1.0.1
 
-> **Version 1.0.0:** The first stable release completes aperture-shaped bokeh, officially supports Skyrim 1.7.104 and its Address Library v5 database, and adds narrowly scoped subject protection for Skyrim display configurations that otherwise blur a tracked character. Skyrim 1.6.1170 compatibility and the completed 0.8.32 rendering baseline are preserved.
+> **Version 1.0.1:** This update adds depth-confirmed actor protection and an optional sky-preserving DoF path with feathered geometry and water boundaries. Sky pixels are also excluded from bright-bokeh amplification, preserving the mod's depth while preventing horizon seams and bright outlines. Skyrim 1.6.1170 and 1.7.104 support is retained.
 
 ## 日本語
 
@@ -16,20 +16,23 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 - 会話中の被写体への自動フォーカス
 - 通常時のDoFを止め、会話中だけDoFを使用する独立オプション
 - 1人称視点で手前ぼかしを無効にするオプション
+- 地形との境界を滑らかに保ちながら空をDoFから除外する、プリセット保存対応のオプション
 - 未割り当てを初期値とするDoF ON/OFFキーボードホットキー
 - 通常プレイ、人物撮影、広角撮影、オブジェクト撮影向けの調整
 - 外部画像を使わず、手前／奥ぼかしのサンプル配置を直接変形し、強くぼけた明点を元の明るさの範囲内で形状として残す絞り形状ボケ
 
 ### 必要環境
 
-- Skyrim AE 1.6.1170／1.7.104（配布版の実ゲーム確認環境）
+- Skyrim AE 1.6.1170／1.7.104
 - SKSE64
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0（ゲーム内UIを使う場合のみ）
 
-ビルドはSkyrim SE／AEを対象とし、配布版はAE 1.6.1170と1.7.104で実ゲーム確認済みです。1.7.104ではAddress Library v5形式へ対応します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
+ビルドはSkyrim SE／AEを対象とします。1.0.1の新機能はAE 1.6.1170で実ゲーム確認済みです。1.7.104対応とAddress Library v5形式は、1.0.0で検証済みの経路を維持します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
 
-Community Shadersを使わない環境では、SSRまたは64-bit HDRが無効な場合に対象追従中の人物保護を有効にします。64-bit HDRが明示的に無効で、有効な追従対象がいるフレームに限り、保存値を変更せず手前ピント範囲の実効値を最低0.15 mにします。64-bit HDRとSSRが有効な通常環境では、これらの保護は無効です。Community Shaders使用時の既存深度フォールバック条件は変更していません。
+人物追従中は、Community ShadersやHDR設定にかかわらず、画面上の人物範囲と実際の深度を組み合わせた共通の人物保護を使用します。接写時に深度を無視して頭部を強制保護する処理は使用せず、首周りや画面端の背景を人物として保護しないようにします。Community Shaders併用時はHDR設定にかかわらず、有効な人物追従中だけ、保存値を変更せず手前ピント範囲の実効値を最低0.17 mにします。非人物の追従対象には適用されません。既存のCommunity Shaders深度フォールバック条件は維持します。
+
+Community Shadersを使わない環境でも同じ人物保護を使用します。非人物のコンソール追跡対象については、SSRまたは64-bit HDRが無効な従来条件でのみ保護します。64-bit HDRが明示的に無効で、有効な追従対象がいるフレームに限り、保存値を変更せず手前ピント範囲の実効値を最低0.15 mにします。
 
 ### インストール
 
@@ -57,6 +60,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 - レンズ調整：焦点距離で前後の分離を大まかに決め、F値でピント範囲を整え、最後に手前／奥最大ぼかしで強さを決めると扱いやすくなります。
 - DoFホットキー：「DoFを有効にする」の右側にあるホットキーボタンを押し、登録したいキーボードのキーを押します。Escで登録を中止、BackspaceまたはDeleteで登録を解除できます。
 - 会話限定DoF：「DoFを有効にする」をON、「会話外でもDoFを使用」をOFF、「会話中の被写体にピントを合わせる」をONにします。
+- 空の除外：「詳細設定を表示」の右側にある「空を鮮明に保つ」で切り替えます。互換用の基準初期値はOFFです。
 
 ホットキーの割り当てはINIへ保存され、プリセットには含まれません。ホットキーで切り替えたDoFのON/OFF状態は自動保存されません。Skyrim本体や他MODと同じキーを割り当てると、両方の操作が実行される場合があります。
 
@@ -85,6 +89,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 ### 補足
 
 - 1人称で通常プレイする場合は、詳細設定の「一人称の手前ぼかし」をOFFにすると武器や手元が鮮明になります。
+- 「空を鮮明に保つ」は未描画の深度から空を判定します。既存INIや既存プリセットにこの設定がない場合はOFFとして読み込み、従来どおり空をぼかします。配布プリセットは必要な枠だけ個別にONを指定できます。月など深度を書き込む天体はぼける場合があります。
 - 「絞り形状ボケ」は初期状態でOFFです。ONにすると、強くピンぼけした明るい点が設定した絞り形状に近づきます。「明るいボケの強調」は、ぼかし平均で薄まる前の明点へ近づける量を調整します。元映像の明点を超える無制限な発光を追加する機能ではありません。
 - 非常に大きなボケを低い「ぼかし品質」で描画すると、サンプル密度不足によりボケが輪や点へ分裂して見える場合があります。これは既知の制限です。必要に応じて品質を上げるか、最大ぼかしを弱めてください。
 - 「周辺ボケの強さ」は、画面周辺の既存ボケを接線方向へ引き延ばし、渦巻くレンズボケを再現します。
@@ -105,20 +110,23 @@ CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a
 - Automatic focus on the conversation subject during dialogue
 - A preset-independent option to use DoF only during dialogue
 - Option to disable near blur in first person
+- A preset-saved option that excludes the sky from DoF while feathering its boundary against geometry
 - An optional, unassigned-by-default keyboard hotkey for toggling DoF
 - Presets designed for gameplay, portraits, wide shots, first-person shots, and object photography
 - Aperture-shaped bokeh that deforms near/far blur samples and can selectively emphasize bright shaped bokeh, with adjustable blade count, roundness, strength, and rotation; no external mask image is required
 
 ### Requirements
 
-- Skyrim AE 1.6.1170 or 1.7.104 (the runtimes used for in-game release testing)
+- Skyrim AE 1.6.1170 or 1.7.104
 - SKSE64
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0 only if you want the in-game UI
 
-The build targets Skyrim SE and AE, and the distributed build was tested in game on AE 1.6.1170 and 1.7.104. Version 1.7.104 uses the Address Library v5 database format supported by this release. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
+The build targets Skyrim SE and AE. Version 1.0.1's new features were tested in game on AE 1.6.1170. Skyrim 1.7.104 support and the Address Library v5 path retain the route validated for version 1.0.0. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
 
-Without Community Shaders, target-tracking subject protection activates when SSR or 64-bit HDR is disabled. When 64-bit HDR is explicitly disabled and a valid tracked target exists, the effective near-focus range is floored at 0.15 m without changing the saved value. Both protections are disabled in a normal standalone configuration with 64-bit HDR and SSR enabled. The established Community Shaders depth-fallback conditions are unchanged.
+While an actor is tracked, one subject-protection path combines the projected actor area with measured depth regardless of Community Shaders or HDR settings. It does not use the former close-up head override that ignored depth, preventing the projected head circle from protecting neck gaps or edge-of-frame background. With Community Shaders, a valid tracked actor receives an effective near-focus floor of 0.17 m regardless of the HDR setting, without changing the saved value. Non-actor targets do not receive it. The established Community Shaders depth-fallback conditions are retained.
+
+The same actor protection is used without Community Shaders. Non-actor console targets retain the legacy protection only when SSR or 64-bit HDR is disabled. When 64-bit HDR is explicitly disabled and a valid tracked target exists, the effective near-focus range is floored at 0.15 m without changing the saved value.
 
 ### Installation
 
@@ -145,6 +153,7 @@ With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Sta
 - Lens workflow: use focal length for broad depth separation, refine the in-focus range with the F-number, then set the final strength with the near and far maximum blur controls.
 - DoF Hotkey: press the hotkey button beside `Enable DoF`, then press the keyboard key you want to assign. Esc cancels assignment; Backspace or Delete clears it.
 - Dialogue-only DoF: enable `Enable DoF`, disable `Use DoF outside dialogue`, and keep dialogue focus enabled.
+- Sky exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. Its compatibility default is off.
 
 The key assignment is saved to the INI and is not part of a preset. Toggling DoF with the hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
 
@@ -163,6 +172,7 @@ When updating from an older version, Custom 1 and Custom 2 keep their original n
 ### Notes
 
 - For normal first-person play, disable `First-Person Near Blur` in Advanced Settings to keep weapons and hands sharp.
+- `Keep Sky Sharp` identifies the sky from unwritten depth. Existing INIs and presets without this setting load it as disabled, retaining the original blurred sky. Bundled presets can explicitly opt in per slot. Moons and other sky objects that write depth can still be blurred.
 - `Aperture Bokeh` is off by default. When enabled, strongly defocused bright points take on the selected aperture shape. `Highlight Boost` controls how far the blurred result moves toward the brightest eligible shaped sample. It does not add unrestricted brightness beyond the sampled source highlight.
 - Very large blur discs rendered at low `Blur Quality` can separate into visible rings or points because the gather has insufficient sample density. This is a known limitation. Raise quality or reduce maximum blur if needed.
 - `Petzval Strength` stretches existing peripheral blur tangentially to create a swirling lens effect.

@@ -132,6 +132,7 @@ Texture2D<float4> TexPostSmoothInput : register(t7);
 Texture2D<float4> TexFarGatherColor1 : register(t8);
 Texture2D<float4> TexFarGatherColor2 : register(t9);
 Texture2D<float4> TexFarGatherColor3 : register(t10);
+Texture2D<float> SkyMaskDepthTexture : register(t11);
 
 cbuffer DoFCB : register(b1)
 {
@@ -162,7 +163,7 @@ cbuffer DoFCB : register(b1)
 	float ApertureRoundness;
 	float2 HeadGuardCenter;
 	float HeadGuardRadius;
-	uint pad3;
+	uint KeepSkySharp;
 	float2 TargetGuardAxis;
 	uint2 pad4;
 };
@@ -258,6 +259,71 @@ float GetDepth(float2 uv)
 	return max(depth, 1e-6);
 }
 
+float GetSkyClearDepthMask(uint2 renderPixel)
+{
+	// Skyrim clears the conventional depth buffer to exactly 1.0. Geometry writes
+	// a value below 1.0, while pixels left untouched by world geometry (normally
+	// the sky) retain the clear value. Read the source texel directly so sampler
+	// filtering cannot create a false boundary classification.
+	float rawDepth = SkyMaskDepthTexture[GetInputPixel(renderPixel)];
+	return rawDepth >= 1.0f ? 1.0f : 0.0f;
+}
+
+float GetSkyHighlightEligibility(float2 renderUV)
+{
+	if (KeepSkySharp == 0)
+		return 1.0f;
+
+	// Bright-bokeh extraction and the general highlight amplifier operate on the
+	// same render-space coordinates as the blur gather. Classify the corresponding
+	// full-resolution source texel with the unfiltered main depth so clear sky
+	// cannot become a bright-bokeh source. Ordinary gather weights remain intact.
+	float2 clampedUV = ClampFullResolutionUV(renderUV);
+	uint2 renderPixel = ClampFullResolutionPixel(int2(clampedUV * SharedData::BufferDim.xy));
+	return 1.0f - GetSkyClearDepthMask(renderPixel);
+}
+
+float GetSkyRingSafety(uint2 renderPixel, int radius)
+{
+	int2 pixel = int2(renderPixel);
+	float clearCount = 0.0f;
+	clearCount += GetSkyClearDepthMask(ClampFullResolutionPixel(pixel + int2(radius, 0)));
+	clearCount += GetSkyClearDepthMask(ClampFullResolutionPixel(pixel + int2(-radius, 0)));
+	clearCount += GetSkyClearDepthMask(ClampFullResolutionPixel(pixel + int2(0, radius)));
+	clearCount += GetSkyClearDepthMask(ClampFullResolutionPixel(pixel + int2(0, -radius)));
+
+	// A ring is considered safe only when all four cardinal samples remain sky.
+	// Combining several radii below produces a stepped feather without allocating
+	// or filtering a separate mask texture.
+	return smoothstep(0.75f, 1.0f, clearCount * 0.25f);
+}
+
+float GetSkyInteriorProtection(uint2 renderPixel)
+{
+	if (KeepSkySharp == 0)
+		return 0.0f;
+
+	float centre = GetSkyClearDepthMask(renderPixel);
+	if (centre < 0.5f)
+		return 0.0f;
+
+	float resolutionScale = max(SharedData::BufferDim.y / 1440.0f, 0.5f);
+	float farBlurRadiusInPixels = (max(FarPlaneMaxBlur, 0.0f) * 0.01f) * invBlurPixelSizeLength;
+	int nearRadius = max(1, (int)round(resolutionScale));
+	int farRadius = max(
+		nearRadius + 2,
+		(int)round(clamp(farBlurRadiusInPixels * 0.20f, 4.0f * resolutionScale, 12.0f * resolutionScale)));
+	int middleRadius = max(nearRadius + 1, (int)round(lerp((float)nearRadius, (float)farRadius, 0.45f)));
+
+	float nearSafety = GetSkyRingSafety(renderPixel, nearRadius);
+	float middleSafety = GetSkyRingSafety(renderPixel, middleRadius);
+	float farSafety = GetSkyRingSafety(renderPixel, farRadius);
+
+	// Keep the normal DoF result at the silhouette, then restore progressively
+	// more of the source sky as the pixel moves away from depth-writing geometry.
+	return centre * (0.25f * nearSafety + 0.35f * middleSafety + 0.40f * farSafety);
+}
+
 float GetBodyTargetGuard(float2 uv)
 {
 	if (!TargetGuardEnabled)
@@ -292,25 +358,7 @@ float GetHeadTargetGuard(float2 uv)
 	// so it remains circular on 16:9, ultrawide, and other resolutions.
 	float aspect = SharedData::BufferDim.x / max(SharedData::BufferDim.y, 1.0f);
 	float2 headDelta = float2((uv.x - HeadGuardCenter.x) * aspect, uv.y - HeadGuardCenter.y);
-	return 1.0f - smoothstep(0.82f, 1.0f, length(headDelta) / HeadGuardRadius);
-}
-
-float GetCloseUpHeadFarGuard(float2 uv)
-{
-	if (!TargetGuardEnabled || HeadGuardRadius <= 0.0f)
-		return 0.0f;
-	// Far-side protection is needed only when the face fills a large part of the
-	// frame.  At gameplay distances it would sharpen real background exposed by
-	// a moving head and reveal the spatial mask as a halo.  Fade it in by the
-	// projected head size and keep it inside the broader near-side guard.
-	float closeUpStrength = smoothstep(0.18f, 0.26f, HeadGuardRadius);
-	if (closeUpStrength <= 0.0f)
-		return 0.0f;
-	float aspect = SharedData::BufferDim.x / max(SharedData::BufferDim.y, 1.0f);
-	float2 headDelta = float2((uv.x - HeadGuardCenter.x) * aspect, uv.y - HeadGuardCenter.y);
-	float innerRadius = max(HeadGuardRadius * 0.86f, 1e-4f);
-	float innerGuard = 1.0f - smoothstep(0.68f, 1.0f, length(headDelta) / innerRadius);
-	return innerGuard * closeUpStrength;
+	return 1.0f - smoothstep(0.72f, 1.0f, length(headDelta) / HeadGuardRadius);
 }
 
 float GetTargetGuard(float2 uv)
@@ -338,25 +386,19 @@ float GetFocusRangeProtection(float2 uv)
 	return 1.0f - smoothstep(focusRange, focusRange + feather, abs(signedFocusDistance));
 }
 
-float GetTargetNearLayerProtection(float2 uv)
+float GetTargetDepthProtection(float2 uv)
 {
 	if (!TargetGuardEnabled)
 		return 0.0f;
 	float focusDepthInM = PreviousFocus() * 1000.0f;
 	float pixelDepthInM = GetDepth(uv) * 1000.0f;
 	float signedFocusDistance = pixelDepthInM - focusDepthInM;
-	// The expanded near layer needs spatial protection on the Low path, but the
-	// guard must not suppress genuine foreground that happens to cross the actor's
-	// screen-space bounds.  Keep only a narrow band around the tracked focus plane;
-	// both substantially nearer foreground and farther background remain unguarded.
+	// Confirm every projected actor guard with depth.  This keeps the face, torso,
+	// and hands on one protection path while preventing the head circle from
+	// sharpening neck gaps or background pixels during close-ups and edge framing.
+	// Substantially nearer foreground and farther background remain unguarded.
 	float subjectDepthGate = 1.0f - smoothstep(0.20f, 0.75f, abs(signedFocusDistance));
-	float bodyProtection = GetBodyTargetGuard(uv) * subjectDepthGate;
-	// Close-up facial depth can be misclassified behind the focus plane on Low.
-	// Preserve the 0.8.17 exception only when the projected head is large enough;
-	// gameplay-distance background still uses the depth gate above.
-	float closeUpStrength = smoothstep(0.18f, 0.26f, HeadGuardRadius);
-	float headProtection = GetHeadTargetGuard(uv) * max(subjectDepthGate, closeUpStrength);
-	return max(bodyProtection, headProtection);
+	return GetTargetGuard(uv) * subjectDepthGate;
 }
 
 void FillFocusInfoData(inout FocusInfo toFill)
@@ -508,6 +550,26 @@ float CalculateBlurDiscSize(FocusInfo focusInfo)
 	return signedFocusDistance < 0.0f ? -toReturn : toReturn;
 }
 
+float RecoverSkyInteriorProtection(uint2 renderPixel, float2 uv, float protectedCoC)
+{
+	if (KeepSkySharp == 0)
+		return 0.0f;
+
+	if (GetSkyClearDepthMask(renderPixel) < 0.5f)
+		return 0.0f;
+
+	FocusInfo focusInfo;
+	focusInfo.texcoord = uv;
+	FillFocusInfoData(focusInfo);
+	float unprotectedCoC = abs(CalculateBlurDiscSize(focusInfo));
+	if (unprotectedCoC <= 1e-6f)
+		return 1.0f;
+
+	// CS_CalculateCoC stores CoC * (1 - protection). Recover that protection
+	// here instead of repeating the twelve neighbouring depth reads.
+	return saturate(1.0f - abs(protectedCoC) / unprotectedCoC);
+}
+
 float GetBlurDiscRadiusFromSource(Texture2D<float> source, float2 texcoord, bool flattenToZero, float2 sourceTexelSize)
 {
 	float coc = source.SampleLevel(LinearSampler, ClampToTexelCentres(texcoord, sourceTexelSize), 0).x;
@@ -543,9 +605,11 @@ float3 ConeOverlap(float3 fragment)
 	return mul(fragment, m);
 }
 
-float3 AccentuateWhites(float3 fragment)
+float3 AccentuateWhites(float3 fragment, float2 renderUV)
 {
 	if (HighlightBoost <= 0.0f)
+		return fragment;
+	if (GetSkyHighlightEligibility(renderUV) <= 0.0f)
 		return fragment;
 
 	// The legacy per-channel reciprocal could approach a zero denominator when an
@@ -661,7 +725,7 @@ float4 PerformPreDiscBlur(DiscBlurInfo blurInfo, Texture2D source)
 	const float pointsFirstRing = max(blurInfo.numberOfRings - 3, 2);  // each ring has a multiple of this value of sample points.
 
 	float4 fragment = source.SampleLevel(LinearSampler, GetInputUV(blurInfo.texcoord), 0);
-	fragment.rgb = AccentuateWhites(fragment.rgb);
+	fragment.rgb = AccentuateWhites(fragment.rgb, blurInfo.texcoord);
 	return fragment;
 }
 
@@ -724,14 +788,15 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	FillFocusInfoData(focusInfo);
 
 	float coc = CalculateBlurDiscSize(focusInfo);
-	// Low graphics can classify the tracked face on either side of the focus
-	// plane.  Protect both signs only inside the close-fitting head circle.  The
-	// broader body guard remains near-plane-only so distant background around the
-	// actor keeps its normal far blur.
-	// Use the same focus-depth band as the final near-layer composite.  The old
-	// unconditional near-side ellipse zeroed the CoC of real foreground grass and
-	// created a sharp body-shaped window while the tracked actor was moving.
-	float targetProtection = coc < 0.0f ? GetTargetNearLayerProtection(uv) : GetCloseUpHeadFarGuard(uv);
+	// Keep only the interior of the clear-depth sky outside the blur. Pixels close
+	// to depth-writing geometry retain progressively more of the normal CoC so the
+	// boundary does not become a hard cut-out.
+	float skyProtection = GetSkyInteriorProtection(DTid);
+	coc = lerp(coc, 0.0f, skyProtection);
+	// Use one depth-confirmed subject guard on both sides of the focus plane.  The
+	// previous close-up head exception ignored depth and could expose its projected
+	// circle around the neck or near a screen edge.
+	float targetProtection = GetTargetDepthProtection(uv);
 	coc = lerp(coc, 0.0f, targetProtection);
 	RWTexCoC[DTid] = coc;
 }
@@ -909,6 +974,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			if (weight > 0) {
 				tap = SampleFarGatherColor(halfResolutionTap, gatherMip);
 				float apertureHighlightWeight = CalculateApertureHighlightWeight(tap.rgb, normalizedRingRadius, colorRadius);
+				if (apertureHighlightWeight > 0.0f)
+					apertureHighlightWeight *= GetSkyHighlightEligibility(fullResolutionTap);
 				float weightedHighlight = apertureHighlightWeight * weight;
 				apertureHighlightSum += tap.rgb * weightedHighlight;
 				apertureHighlightWeightSum += weightedHighlight;
@@ -963,6 +1030,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	// only inspected the concentric rings, so a small highlight at the centre of
 	// its own blur could be weaker than the outline surrounding it.
 	float centerApertureHighlightWeight = CalculateNearApertureHighlightWeight(color.rgb, colorRadiusToUse);
+	if (centerApertureHighlightWeight > 0.0f)
+		centerApertureHighlightWeight *= GetSkyHighlightEligibility(blurInfo.texcoord);
 	float3 apertureHighlightSum = color.rgb * centerApertureHighlightWeight;
 	float apertureHighlightWeightSum = centerApertureHighlightWeight;
 	// Keep a second mean from the aperture perimeter. It reintroduces a small
@@ -991,6 +1060,8 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 			float2 halfResolutionTap = ClampHalfResolutionUV(tapCoords);
 			float4 tap = TexColor.SampleLevel(LinearSampler, halfResolutionTap, 0);
 			float apertureHighlightWeight = CalculateNearApertureHighlightWeight(tap.rgb, colorRadiusToUse);
+			if (apertureHighlightWeight > 0.0f)
+				apertureHighlightWeight *= GetSkyHighlightEligibility(fullResolutionTap);
 			float weightedHighlight = apertureHighlightWeight * weight;
 			apertureHighlightSum += tap.rgb * weightedHighlight;
 			apertureHighlightWeightSum += weightedHighlight;
@@ -1051,8 +1122,9 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 
 	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
 	// first blend far plane with original buffer, then near plane on top of that.
-	float4 originalFragment = TexColor[GetInputPixel(DTid)];
-	originalFragment.rgb = AccentuateWhites(originalFragment.rgb);
+	float4 sourceFragment = TexColor[GetInputPixel(DTid)];
+	float4 originalFragment = sourceFragment;
+	originalFragment.rgb = AccentuateWhites(originalFragment.rgb, uv);
 	float2 halfResolutionUV = ClampHalfResolutionUV(uv);
 	float4 farFragment = TexFarBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
 	float4 nearFragment = TexNearBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
@@ -1065,9 +1137,11 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	float4 color;
 	color = lerp(originalFragment, farFragment, blendFactor);
 	float nearBlend = nearFragment.a * (NearPlaneMaxBlur != 0);
-	float nearBlurProtection = max(GetTargetNearLayerProtection(uv), GetFocusRangeProtection(uv));
+	float nearBlurProtection = max(GetTargetDepthProtection(uv), GetFocusRangeProtection(uv));
 	nearBlend *= 1.0f - nearBlurProtection;
 	color.rgb = lerp(color.rgb, nearFragment.rgb, nearBlend);
+	float skyProtection = RecoverSkyInteriorProtection(DTid, uv, pixelCoC);
+	color.rgb = lerp(color.rgb, sourceFragment.rgb, skyProtection);
 	color.a = 1.0;
 	RWTexOut[DTid] = color;
 }

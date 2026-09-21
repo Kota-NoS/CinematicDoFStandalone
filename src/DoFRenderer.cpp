@@ -39,7 +39,7 @@ namespace
 		float apertureRoundness;
 		Float2 headGuardCenter;
 		float headGuardRadius;
-		std::uint32_t padding3;
+		std::uint32_t keepSkySharp;
 		Float2 targetGuardAxis;
 		std::uint32_t padding4[2];
 	};
@@ -123,6 +123,11 @@ namespace
 		return std::nullopt;
 	}
 
+	const char* DescribeDisplayBool(const std::optional<bool>& a_value)
+	{
+		return a_value ? (*a_value ? "on" : "off") : "unknown";
+	}
+
 	std::optional<D3D11_TEXTURE2D_DESC> GetTextureDescription(ID3D11View* a_view)
 	{
 		if (!a_view) {
@@ -175,6 +180,8 @@ namespace
 	};
 
 	constexpr float kGameUnitToMeters = 0.01428F;
+	constexpr float kCommunityShadersActorNearFocusMinimumMeters = 0.17F;
+	constexpr float kStandaloneNearFocusMinimumMeters = 0.15F;
 
 	RE::NiCamera* FindActiveNiCamera(RE::NiAVObject* a_object)
 	{
@@ -533,6 +540,7 @@ std::optional<CDoF::DoFRenderer::TargetFocusSample> CDoF::DoFRenderer::GetTarget
 		return std::nullopt;
 	}
 	TargetFocusSample result{};
+	result.actor = a_target->GetFormType() == RE::FormType::ActorCharacter;
 	result.distanceMeters = std::clamp(distanceMeters, 0.1F, 150.0F);
 	const auto shaderScreenY = 1.0F - screenY;
 	result.focusCoordinate = { screenX, shaderScreenY };
@@ -554,7 +562,7 @@ std::optional<CDoF::DoFRenderer::TargetFocusSample> CDoF::DoFRenderer::GetTarget
 		return std::array{ x, 1.0F - y };
 	};
 
-	if (a_target->GetFormType() == RE::FormType::ActorCharacter) {
+	if (result.actor) {
 		// The head position is already the focus anchor.  Project a small sphere
 		// around it so the screen-space guard grows naturally during close-ups and
 		// shrinks with distance, independently of standing, crouching, or lying poses.
@@ -662,33 +670,51 @@ void CDoF::DoFRenderer::Apply()
 		if (const auto focus = GetDialogueTargetFocus()) {
 			effectiveSettings = dialogueLensSettings_;
 			effectiveSettings.enabled = true;
-			effectiveSettings.autoFocus = false;
-			effectiveSettings.manualFocusMeters = focus->distanceMeters;
+			// Focus on the visible surface at the projected dialogue anchor.  Using the
+			// camera-space anchor distance can disagree with the depth texture supplied
+			// by Community Shaders, which leaves the entire subject on the near side.
+			effectiveSettings.autoFocus = focus->surfaceFocusValid;
+			if (focus->surfaceFocusValid) {
+				effectiveSettings.focusX = focus->focusCoordinate[0];
+				effectiveSettings.focusY = focus->focusCoordinate[1];
+			} else {
+				effectiveSettings.manualFocusMeters = focus->distanceMeters;
+			}
 			ApplyDepthStrength(effectiveSettings, targetFocusSettings_.dialogueDepthStrength);
 			activeTargetFocus = focus;
 			targetFocusMode = TargetFocusMode::kDialogue;
 		}
 	}
-	if (targetFocusMode == TargetFocusMode::kNone && !modeSettings_.normalGameplayEnabled) {
+	const auto dialogueOnlyIdle =
+		targetFocusMode == TargetFocusMode::kNone && !modeSettings_.normalGameplayEnabled;
+	if (dialogueOnlyIdle) {
 		if (targetFocusMode_ != TargetFocusMode::kNone) {
 			targetFocusMode_ = TargetFocusMode::kNone;
 			spdlog::info("Dialogue target focus ended; normal gameplay DoF is disabled");
 		}
-		return;
+		if (dialogueOnlyPrewarmed_) {
+			return;
+		}
 	}
-	if (targetFocusMode == TargetFocusMode::kNone && targetFocusSettings_.consoleEnabled) {
+	if (!dialogueOnlyIdle &&
+		targetFocusMode == TargetFocusMode::kNone && targetFocusSettings_.consoleEnabled) {
 		const auto playerSource = targetFocusSettings_.targetSource == TargetFocusSource::kPlayer;
 		const auto focus = playerSource ? GetPlayerTargetFocus() : GetConsoleTargetFocus();
 		if (focus) {
 			effectiveSettings = settings_;
 			effectiveSettings.enabled = true;
-			// Use the projected head/target anchor distance, matching the restored behaviour.
-			// GetTargetFocus continues
-			// to populate the visible-surface coordinate so a future advanced UI
-			// option can select it without changing the target sampling code again.
-			effectiveSettings.autoFocus = false;
-			effectiveSettings.manualFocusMeters = std::clamp(
-				focus->distanceMeters + targetFocusSettings_.targetFocusOffsetMeters, 0.1F, 150.0F);
+			// Match Screen AF: sample the same depth texture used by the CoC pass at
+			// the projected target anchor.  This avoids mixing a camera-space distance
+			// with a Community Shaders depth surface that can use a different mapping.
+			effectiveSettings.autoFocus = focus->surfaceFocusValid;
+			if (focus->surfaceFocusValid) {
+				effectiveSettings.focusX = focus->focusCoordinate[0];
+				effectiveSettings.focusY = focus->focusCoordinate[1];
+				effectiveSettings.autoFocusOffsetMeters = targetFocusSettings_.targetFocusOffsetMeters;
+			} else {
+				effectiveSettings.manualFocusMeters = std::clamp(
+					focus->distanceMeters + targetFocusSettings_.targetFocusOffsetMeters, 0.1F, 150.0F);
+			}
 			activeTargetFocus = focus;
 			targetFocusMode = playerSource ? TargetFocusMode::kPlayer : TargetFocusMode::kConsole;
 		}
@@ -697,15 +723,31 @@ void CDoF::DoFRenderer::Apply()
 		targetFocusMode_ = targetFocusMode;
 		switch (targetFocusMode_) {
 		case TargetFocusMode::kDialogue:
-			spdlog::info("Dialogue target focus activated at {:.2f} m", effectiveSettings.manualFocusMeters);
+			if (effectiveSettings.autoFocus) {
+				spdlog::info("Dialogue target focus activated using visible-surface depth at ({:.3f}, {:.3f})",
+					effectiveSettings.focusX, effectiveSettings.focusY);
+			} else {
+				spdlog::info("Dialogue target focus activated using projected anchor distance at {:.2f} m",
+					effectiveSettings.manualFocusMeters);
+			}
 			break;
 		case TargetFocusMode::kPlayer:
-			spdlog::info("Player target focus activated using projected anchor distance at {:.2f} m",
-				effectiveSettings.manualFocusMeters);
+			if (effectiveSettings.autoFocus) {
+				spdlog::info("Player target focus activated using visible-surface depth at ({:.3f}, {:.3f}); offset {:+.2f} m",
+					effectiveSettings.focusX, effectiveSettings.focusY, effectiveSettings.autoFocusOffsetMeters);
+			} else {
+				spdlog::info("Player target focus activated using projected anchor distance at {:.2f} m",
+					effectiveSettings.manualFocusMeters);
+			}
 			break;
 		case TargetFocusMode::kConsole:
-			spdlog::info("Console target focus activated using projected anchor distance at {:.2f} m",
-				effectiveSettings.manualFocusMeters);
+			if (effectiveSettings.autoFocus) {
+				spdlog::info("Console target focus activated using visible-surface depth at ({:.3f}, {:.3f}); offset {:+.2f} m",
+					effectiveSettings.focusX, effectiveSettings.focusY, effectiveSettings.autoFocusOffsetMeters);
+			} else {
+				spdlog::info("Console target focus activated using projected anchor distance at {:.2f} m",
+					effectiveSettings.manualFocusMeters);
+			}
 			break;
 		case TargetFocusMode::kNone:
 			spdlog::info("Target focus ended; restored normal settings");
@@ -716,7 +758,15 @@ void CDoF::DoFRenderer::Apply()
 		camera && camera->IsInFirstPerson() && !effectiveSettings.enableFirstPersonNearBlur) {
 		effectiveSettings.nearPlaneMaxBlur = 0.0F;
 	}
-	if (!effectiveSettings.enabled || IsMenuBlocked(effectiveSettings)) {
+	// Dialogue-only mode normally returns before touching the renderer. Force the
+	// existing menu guard during its one-time preparation so shader compilation
+	// and texture creation happen on the first safe gameplay frame, not in the
+	// main/loading/map menu and not on the first conversation frame.
+	auto preparationSettings = effectiveSettings;
+	if (dialogueOnlyIdle) {
+		preparationSettings.disableInMenus = true;
+	}
+	if (!effectiveSettings.enabled || IsMenuBlocked(preparationSettings)) {
 		return;
 	}
 
@@ -738,8 +788,9 @@ void CDoF::DoFRenderer::Apply()
 		context->OMGetRenderTargets(1, currentRTV.GetAddressOf(), currentDSV.GetAddressOf());
 
 		auto& depthStencils = renderer->GetDepthStencilData().depthStencils;
-		auto depth = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV;
-		if (!mainTarget.texture || !mainTarget.SRV || !depth) {
+		auto mainDepth = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV;
+		auto depth = mainDepth;
+		if (!mainTarget.texture || !mainTarget.SRV || !mainDepth) {
 			return;
 		}
 
@@ -747,32 +798,46 @@ void CDoF::DoFRenderer::Apply()
 		mainTarget.texture->GetDesc(&inputDescription);
 		const auto renderArea = GetActiveRenderArea(context, inputDescription);
 		if (!depthPathChecked_) {
-			const auto saoEnabled = ReadDisplayBool("bSAOEnable:Display");
-			const auto reflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
-			const auto hdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
+			const auto runtimeSaoEnabled = ReadDisplayBool("bSAOEnable:Display");
+			const auto runtimeReflectionsEnabled = ReadDisplayBool("bScreenSpaceReflectionEnabled:Display");
+			const auto runtimeHdr64Enabled = ReadDisplayBool("bUse64bitsHDRRenderTarget:Display");
 			const auto communityShadersLoaded =
 				GetModuleHandleW(L"CommunityShaders.dll") != nullptr;
+			const auto actualHdr64Target =
+				inputDescription.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
 			const auto lowSpecDepthSettings =
-				(saoEnabled && !*saoEnabled) ||
-				(reflectionsEnabled && !*reflectionsEnabled) ||
-				(hdr64Enabled && !*hdr64Enabled);
-			const auto standaloneTargetGuardSettings =
-				(reflectionsEnabled && !*reflectionsEnabled) ||
-				(hdr64Enabled && !*hdr64Enabled);
+				(runtimeSaoEnabled && !*runtimeSaoEnabled) ||
+				(runtimeReflectionsEnabled && !*runtimeReflectionsEnabled) ||
+				(runtimeHdr64Enabled && !*runtimeHdr64Enabled);
+			// The actual target format remains useful diagnostics, but Community Shaders
+			// normally supplies its own non-64-bit target even when the game setting is on.
+			// Do not treat that normal format as a reason to enable a visible subject mask.
+			const auto standaloneHdrTargetGuardSetting =
+				runtimeHdr64Enabled && !*runtimeHdr64Enabled;
+			const auto standaloneTargetGuardSetting =
+				(runtimeReflectionsEnabled && !*runtimeReflectionsEnabled) ||
+				standaloneHdrTargetGuardSetting;
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
-			useStandaloneTargetGuard_ =
-				!communityShadersLoaded && standaloneTargetGuardSettings;
+			useStandaloneNonActorTargetGuard_ =
+				!communityShadersLoaded && standaloneTargetGuardSetting;
+			// Visual A/B testing selected the assisted Test 7A result: when Community
+			// Shaders is present, tracked actors always receive the small near-focus
+			// floor.  This is independent of HDR and does not change saved settings.
+			useCommunityShadersActorNearFocusAssist_ = communityShadersLoaded;
 			useStandaloneNearFocusAssist_ =
-				!communityShadersLoaded && hdr64Enabled && !*hdr64Enabled;
+				!communityShadersLoaded && standaloneHdrTargetGuardSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings: SAO={}, SSR={}, 64-bit HDR={}; Community Shaders={}; selected {} depth path; standalone target guard={}; HDR near-focus assist={}",
-				saoEnabled ? (*saoEnabled ? "on" : "off") : "unknown",
-				reflectionsEnabled ? (*reflectionsEnabled ? "on" : "off") : "unknown",
-				hdr64Enabled ? (*hdr64Enabled ? "on" : "off") : "unknown",
+				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders actor near-focus assist={}; standalone HDR-off near-focus assist={}",
+				DescribeDisplayBool(runtimeSaoEnabled),
+				DescribeDisplayBool(runtimeReflectionsEnabled),
+				DescribeDisplayBool(runtimeHdr64Enabled),
+				static_cast<std::uint32_t>(inputDescription.Format),
+				actualHdr64Target ? "yes" : "no",
 				communityShadersLoaded ? "loaded" : "not loaded",
 				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard",
-				useStandaloneTargetGuard_ ? "enabled" : "disabled",
+				useStandaloneNonActorTargetGuard_ ? "enabled" : "disabled",
+				useCommunityShadersActorNearFocusAssist_ ? "enabled" : "disabled",
 				useStandaloneNearFocusAssist_ ? "enabled" : "disabled");
 			if (lowSpecDepthSettings && !communityShadersLoaded) {
 				spdlog::warn(
@@ -832,34 +897,73 @@ void CDoF::DoFRenderer::Apply()
 				scissor.bottom);
 		}
 
+		const auto preparationStarted = std::chrono::steady_clock::now();
 		if (inputDescription.SampleDesc.Count != 1 ||
 			!EnsureResources(device, inputDescription, renderArea.width, renderArea.height)) {
 			permanentlyDisabled_ = true;
 			spdlog::critical("Depth of field disabled because GPU resources could not be created");
 			return;
 		}
+		if (dialogueOnlyIdle) {
+			dialogueOnlyPrewarmed_ = true;
+			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now() - preparationStarted);
+			spdlog::info(
+				"Dialogue-only renderer prewarm completed in {} ms; no DoF frame was rendered",
+				elapsed.count());
+			return;
+		}
 		ID3D11RenderTargetView* restoreRTV = currentRTV.Get();
 		OutputMergerRestore restore{ context, restoreRTV, currentDSV.Get() };
 		context->OMSetRenderTargets(0, nullptr, nullptr);
-		const auto targetGuardEnabled = useLowSpecDepthFallback_ || useStandaloneTargetGuard_;
-		const auto* lowSpecTargetGuard = targetGuardEnabled && activeTargetFocus && activeTargetFocus->guardValid ?
+		const auto* validTargetFocus = activeTargetFocus ?
 			std::addressof(*activeTargetFocus) : nullptr;
-		if (lowSpecTargetGuard && !loggedLowSpecTargetGuard_) {
-			loggedLowSpecTargetGuard_ = true;
+		// Actor protection now follows one depth-confirmed path in every display and
+		// Community Shaders configuration.  Preserve the legacy standalone guard for
+		// non-actor console targets only in the low-spec configurations that required it.
+		const auto actorTargetGuard = validTargetFocus && validTargetFocus->actor;
+		const auto standaloneNonActorTargetGuard =
+			validTargetFocus && !validTargetFocus->actor && useStandaloneNonActorTargetGuard_;
+		const auto* targetGuard =
+			validTargetFocus && validTargetFocus->guardValid &&
+				(actorTargetGuard || standaloneNonActorTargetGuard) ?
+				validTargetFocus : nullptr;
+		float targetNearFocusMinimumMeters{};
+		const char* targetNearFocusAssistName = nullptr;
+		if (validTargetFocus && validTargetFocus->actor && useCommunityShadersActorNearFocusAssist_) {
+			targetNearFocusMinimumMeters = kCommunityShadersActorNearFocusMinimumMeters;
+			targetNearFocusAssistName = "Community Shaders actor";
+		} else if (validTargetFocus && useStandaloneNearFocusAssist_) {
+			targetNearFocusMinimumMeters = kStandaloneNearFocusMinimumMeters;
+			targetNearFocusAssistName = "Standalone HDR-off";
+		}
+		if (targetGuard && !loggedTargetGuard_) {
+			loggedTargetGuard_ = true;
 			spdlog::info(
-				"{} target near-blur protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
-				useStandaloneTargetGuard_ ? "Standalone" : "Low-spec",
-				lowSpecTargetGuard->guardCenter[0], lowSpecTargetGuard->guardCenter[1],
-				lowSpecTargetGuard->guardRadius[0], lowSpecTargetGuard->guardRadius[1],
-				lowSpecTargetGuard->headGuardCenter[0], lowSpecTargetGuard->headGuardCenter[1],
-				lowSpecTargetGuard->headGuardValid ? lowSpecTargetGuard->headGuardRadius : 0.0F);
+				"{} depth-confirmed target protection activated (body centre {:.3f}, {:.3f}; radius {:.3f}, {:.3f}; head centre {:.3f}, {:.3f}; radius {:.3f})",
+				targetGuard->actor ? "Tracked actor" : "Standalone non-actor",
+				targetGuard->guardCenter[0], targetGuard->guardCenter[1],
+				targetGuard->guardRadius[0], targetGuard->guardRadius[1],
+				targetGuard->headGuardCenter[0], targetGuard->headGuardCenter[1],
+				targetGuard->headGuardValid ? targetGuard->headGuardRadius : 0.0F);
+		}
+		if (targetNearFocusMinimumMeters > 0.0F && !loggedTargetNearFocusAssist_) {
+			loggedTargetNearFocusAssist_ = true;
+			spdlog::info(
+				"{} near-focus assist activated (saved {:.2f} m; minimum {:.2f} m; effective {:.2f} m)",
+				targetNearFocusAssistName,
+				effectiveSettings.nearFocusRangeMeters,
+				targetNearFocusMinimumMeters,
+				std::max(effectiveSettings.nearFocusRangeMeters, targetNearFocusMinimumMeters));
 		}
 		Dispatch(
 			context,
 			mainTarget.SRV,
 			depth,
+			mainDepth,
 			effectiveSettings,
-			lowSpecTargetGuard,
+			targetGuard,
+			targetNearFocusMinimumMeters,
 			inputDescription.Width,
 			inputDescription.Height,
 			renderArea.left,
@@ -898,17 +1002,18 @@ void CDoF::DoFRenderer::Dispatch(
 	ID3D11DeviceContext* a_context,
 	ID3D11ShaderResourceView* a_color,
 	ID3D11ShaderResourceView* a_depth,
+	ID3D11ShaderResourceView* a_skyMaskDepth,
 	const Settings& a_settings,
-	const TargetFocusSample* a_lowSpecTargetGuard,
+	const TargetFocusSample* a_targetGuard,
+	float a_targetNearFocusMinimumMeters,
 	std::uint32_t a_inputWidth,
 	std::uint32_t a_inputHeight,
 	std::uint32_t a_renderLeft,
 	std::uint32_t a_renderTop)
 {
-	constexpr auto kStandaloneNearFocusMinimumMeters = 0.15F;
 	const auto effectiveNearFocusRangeMeters =
-		useStandaloneNearFocusAssist_ && a_lowSpecTargetGuard ?
-			std::max(a_settings.nearFocusRangeMeters, kStandaloneNearFocusMinimumMeters) :
+		a_targetNearFocusMinimumMeters > 0.0F ?
+			std::max(a_settings.nearFocusRangeMeters, a_targetNearFocusMinimumMeters) :
 			a_settings.nearFocusRangeMeters;
 	const DoFConstants dofData{
 		.transitionSpeed = resources_.focusInitialized ? a_settings.transitionSpeed : 1.0F,
@@ -928,23 +1033,23 @@ void CDoF::DoFRenderer::Dispatch(
 		.petzvalStrength = a_settings.petzvalStrength,
 		.autoFocus = a_settings.autoFocus ? 1U : 0U,
 		.autoFocusOffsetPlane = a_settings.autoFocusOffsetMeters / 1000.0F,
-		.targetGuardEnabled = a_lowSpecTargetGuard ? 1U : 0U,
+		.targetGuardEnabled = a_targetGuard ? 1U : 0U,
 		.apertureShapeStrength = a_settings.apertureShapeStrength,
-		.targetGuardCenter = a_lowSpecTargetGuard ?
-			Float2{ a_lowSpecTargetGuard->guardCenter[0], a_lowSpecTargetGuard->guardCenter[1] } : Float2{ 0.5F, 0.5F },
-		.targetGuardRadius = a_lowSpecTargetGuard ?
-			Float2{ a_lowSpecTargetGuard->guardRadius[0], a_lowSpecTargetGuard->guardRadius[1] } : Float2{ 1.0F, 1.0F },
+		.targetGuardCenter = a_targetGuard ?
+			Float2{ a_targetGuard->guardCenter[0], a_targetGuard->guardCenter[1] } : Float2{ 0.5F, 0.5F },
+		.targetGuardRadius = a_targetGuard ?
+			Float2{ a_targetGuard->guardRadius[0], a_targetGuard->guardRadius[1] } : Float2{ 1.0F, 1.0F },
 		.nearFocusRangeMeters = effectiveNearFocusRangeMeters,
 		.farFocusRangeMeters = a_settings.farFocusRangeMeters,
 		.apertureBlades = std::clamp(a_settings.apertureBlades, 3U, 12U),
 		.apertureRoundness = std::clamp(a_settings.apertureRoundness, 0.0F, 1.0F),
-		.headGuardCenter = a_lowSpecTargetGuard && a_lowSpecTargetGuard->headGuardValid ?
-			Float2{ a_lowSpecTargetGuard->headGuardCenter[0], a_lowSpecTargetGuard->headGuardCenter[1] } : Float2{ 0.5F, 0.5F },
-		.headGuardRadius = a_lowSpecTargetGuard && a_lowSpecTargetGuard->headGuardValid ?
-			a_lowSpecTargetGuard->headGuardRadius : 0.0F,
-		.padding3 = 0U,
-		.targetGuardAxis = a_lowSpecTargetGuard ?
-			Float2{ a_lowSpecTargetGuard->guardAxis[0], a_lowSpecTargetGuard->guardAxis[1] } : Float2{},
+		.headGuardCenter = a_targetGuard && a_targetGuard->headGuardValid ?
+			Float2{ a_targetGuard->headGuardCenter[0], a_targetGuard->headGuardCenter[1] } : Float2{ 0.5F, 0.5F },
+		.headGuardRadius = a_targetGuard && a_targetGuard->headGuardValid ?
+			a_targetGuard->headGuardRadius : 0.0F,
+		.keepSkySharp = a_settings.keepSkySharp ? 1U : 0U,
+		.targetGuardAxis = a_targetGuard ?
+			Float2{ a_targetGuard->guardAxis[0], a_targetGuard->guardAxis[1] } : Float2{},
 		.padding4 = {}
 	};
 	const SharedConstants sharedData{
@@ -973,7 +1078,7 @@ void CDoF::DoFRenderer::Dispatch(
 	a_context->CSSetConstantBuffers(5, 1, &sharedCB);
 	a_context->CSSetSamplers(0, 1, &sampler);
 
-	std::array<ID3D11ShaderResourceView*, 11> srvs{};
+	std::array<ID3D11ShaderResourceView*, 12> srvs{};
 	std::array<ID3D11UnorderedAccessView*, 3> uavs{};
 	const auto resetViews = [&]() {
 		srvs.fill(nullptr);
@@ -1021,6 +1126,11 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[0] = a_color;
 	srvs[1] = resources_.previousFocus.srv.Get();
 	srvs[2] = a_depth;
+	// Keep autofocus and all ordinary DoF calculations on the selected depth
+	// path, but classify sky from the current main depth. Community Shaders'
+	// low-spec fallback is copied before water renders, so using it for both
+	// purposes incorrectly classifies distant water as clear sky.
+	srvs[11] = a_skyMaskDepth;
 	uavs[2] = resources_.coc.uav.Get();
 	bindAndDispatch(shaders_.calculateCoC.Get(), fullWidth, fullHeight);
 	resetViews();
@@ -1054,6 +1164,9 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[0] = a_color;
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[4] = resources_.cocBlur2.srv.Get();
+	// Pre-blur performs the general bright-bokeh amplification. Expose main depth
+	// so clear sky can bypass that amplification when Keep Sky Sharp is enabled.
+	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.preBlurred.uav.Get();
 	bindAndDispatch(shaders_.blur.Get(), halfWidth, halfHeight);
 	resetViews();
@@ -1081,12 +1194,17 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[2] = a_depth;
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[4] = resources_.cocBlur2.srv.Get();
+	// Keep ordinary far-blur sampling unchanged, but expose the existing main
+	// depth so the shader can reject clear-sky samples from highlight extraction.
+	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.farBlurred.uav.Get();
 	bindAndDispatch(shaders_.farBlur.Get(), halfWidth, halfHeight);
 	resetViews();
 	srvs[0] = resources_.farBlurred.srv.Get();
 	srvs[3] = resources_.cocTileNeighbor.srv.Get();
 	srvs[4] = resources_.cocBlur2.srv.Get();
+	// Near highlights use the same sky classification as the far gather.
+	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.nearBlurred.uav.Get();
 	bindAndDispatch(shaders_.nearBlur.Get(), halfWidth, halfHeight);
 	resetViews();
@@ -1106,6 +1224,7 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[5] = resources_.blurredFiltered.srv.Get();
 	srvs[6] = resources_.nearBlurred.srv.Get();
+	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.postSmooth.uav.Get();
 	bindAndDispatch(shaders_.combiner.Get(), fullWidth, fullHeight);
 	resetViews();

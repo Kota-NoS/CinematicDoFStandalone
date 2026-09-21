@@ -29,6 +29,7 @@ namespace CDoF
 			bool guardValid{ false };
 			bool headGuardValid{ false };
 			bool surfaceFocusValid{ false };
+			bool actor{ false };
 		};
 
 		struct Texture
@@ -101,8 +102,10 @@ namespace CDoF
 			ID3D11DeviceContext* a_context,
 			ID3D11ShaderResourceView* a_color,
 			ID3D11ShaderResourceView* a_depth,
+			ID3D11ShaderResourceView* a_skyMaskDepth,
 			const Settings& a_settings,
-			const TargetFocusSample* a_lowSpecTargetGuard,
+			const TargetFocusSample* a_targetGuard,
+			float a_targetNearFocusMinimumMeters,
 			std::uint32_t a_inputWidth,
 			std::uint32_t a_inputHeight,
 			std::uint32_t a_renderLeft,
@@ -136,11 +139,14 @@ namespace CDoF
 		bool loggedFirstFrame_{ false };
 		bool depthPathChecked_{ false };
 		bool useLowSpecDepthFallback_{ false };
-		bool useStandaloneTargetGuard_{ false };
+		bool useStandaloneNonActorTargetGuard_{ false };
+		bool useCommunityShadersActorNearFocusAssist_{ false };
 		bool useStandaloneNearFocusAssist_{ false };
 		bool loggedDepthFallbackUnavailable_{ false };
-		bool loggedLowSpecTargetGuard_{ false };
+		bool loggedTargetGuard_{ false };
+		bool loggedTargetNearFocusAssist_{ false };
 		bool loggedRenderAreaDiagnostics_{ false };
+		bool dialogueOnlyPrewarmed_{ false };
 		TargetFocusMode targetFocusMode_{ TargetFocusMode::kNone };
 		std::mutex mutex_;
 	};

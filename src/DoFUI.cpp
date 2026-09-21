@@ -246,6 +246,7 @@ namespace
 		preset.blurQuality = 5.0F;
 		preset.nearFarDistanceCompensation = 3.98F;
 		preset.bokehBusyFactor = 0.25F;
+		preset.keepSkySharp = true;
 		return preset;
 	}
 
@@ -263,6 +264,7 @@ namespace
 		preset.blurQuality = 5.0F;
 		preset.nearFarDistanceCompensation = 3.94F;
 		preset.bokehBusyFactor = 0.0F;
+		preset.keepSkySharp = true;
 		return preset;
 	}
 
@@ -280,6 +282,7 @@ namespace
 		preset.blurQuality = 8.0F;
 		preset.nearFarDistanceCompensation = 3.7F;
 		preset.bokehBusyFactor = 0.4F;
+		preset.keepSkySharp = false;
 		return preset;
 	}
 
@@ -297,6 +300,7 @@ namespace
 		preset.blurQuality = 8.0F;
 		preset.nearFarDistanceCompensation = 3.67F;
 		preset.bokehBusyFactor = 0.0F;
+		preset.keepSkySharp = true;
 		return preset;
 	}
 
@@ -315,6 +319,7 @@ namespace
 		preset.nearFarDistanceCompensation = 4.14F;
 		preset.bokehBusyFactor = 0.0F;
 		preset.highlightBoost = 0.11F;
+		preset.keepSkySharp = false;
 		return preset;
 	}
 
@@ -334,6 +339,7 @@ namespace
 		preset.nearFarDistanceCompensation = 4.91F;
 		preset.bokehBusyFactor = 0.0F;
 		preset.highlightBoost = 0.08F;
+		preset.keepSkySharp = true;
 		return preset;
 	}
 
@@ -352,6 +358,7 @@ namespace
 		preset.blurQuality = 5.0F;
 		preset.nearFarDistanceCompensation = 3.94F;
 		preset.bokehBusyFactor = 0.0F;
+		preset.keepSkySharp = true;
 		return preset;
 	}
 
@@ -372,6 +379,7 @@ namespace
 		preset.blurQuality = 7.5F;
 		preset.nearFarDistanceCompensation = 3.83F;
 		preset.bokehBusyFactor = 0.45F;
+		preset.keepSkySharp = false;
 		return preset;
 	}
 
@@ -404,6 +412,7 @@ namespace
 		preset.apertureRotationDegrees = 0.0F;
 		preset.nearFocusRangeMeters = 0.0F;
 		preset.farFocusRangeMeters = 2.1F;
+		preset.keepSkySharp = false;
 		return preset;
 	}
 
@@ -462,6 +471,7 @@ namespace
 			a_left.autoFocus == a_right.autoFocus &&
 			a_left.disableInMenus == a_right.disableInMenus &&
 			a_left.enableFirstPersonNearBlur == a_right.enableFirstPersonNearBlur &&
+			a_left.keepSkySharp == a_right.keepSkySharp &&
 			a_left.apertureBokeh == a_right.apertureBokeh &&
 			a_left.apertureBlades == a_right.apertureBlades &&
 			NearlyEqual(a_left.transitionSpeed, a_right.transitionSpeed) &&
@@ -952,6 +962,13 @@ namespace
 				showAdvanced ? "詳細設定を隠す" : "詳細設定を表示"))) {
 			showAdvanced = !showAdvanced;
 		}
+		MenuFramework::SameLine();
+		changed |= CheckboxWithHelp(
+			"Keep Sky Sharp",
+			"空を鮮明に保つ",
+			&uiSettings.keepSkySharp,
+			"Excludes clear-depth sky pixels from DoF while preserving a soft boundary around geometry. Moons and other sky objects that write depth can still be blurred.",
+			"深度が未描画の空をDoFから除外し、地形との境界は滑らかに保ちます。月など深度を書き込む天体はぼける場合があります。");
 		if (showAdvanced) {
 			MenuFramework::SeparatorText(Localized("Bokeh and Quality", "画質・ボケの詳細"));
 			changed |= CheckboxWithHelp(
