@@ -149,7 +149,7 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	// behavior match every other Menu Framework button. The visible person is
 	// drawn over an ID-only label and therefore does not depend on font glyphs.
 	// An ASCII S remains as a compatibility fallback for older frameworks.
-	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ 28.0F, 28.0F });
+	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ 36.0F, 36.0F });
 	if (!canDraw) {
 		return pressed;
 	}
@@ -163,7 +163,7 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	const auto side = std::min(width, height);
 	const auto left = minimum.x + (width - side) * 0.5F;
 	const auto top = minimum.y + (height - side) * 0.5F;
-	const auto outerInset = std::max(2.0F, side * 0.10F);
+	const auto outerInset = std::max(2.0F, side * 0.067F);
 	const auto activeBorder = a_active ? std::max(1.5F, side * 0.075F) : 0.0F;
 	const ImVec2 tileMinimum{ left + outerInset, top + outerInset };
 	const ImVec2 tileMaximum{ left + side - outerInset, top + side - outerInset };

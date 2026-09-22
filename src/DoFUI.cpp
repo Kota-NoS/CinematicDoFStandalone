@@ -1102,16 +1102,17 @@ namespace
 		MenuFramework::SameLine();
 		if (MenuFramework::SilhouetteIconButton("##OpenSilhouettePhotoMode", silhouetteSettings.enabled)) {
 			if (silhouetteWindow) {
-				silhouetteWindow->isOpen = true;
+				silhouetteWindow->isOpen = !silhouetteWindow->isOpen;
 			}
 		}
+		const auto silhouetteWindowOpen = silhouetteWindow && silhouetteWindow->isOpen;
 		MenuFramework::ItemTooltip(Localized(
-			silhouetteSettings.enabled ?
-				"Open Silhouette Photo Mode settings. Silhouette mode is currently ON." :
-				"Open Silhouette Photo Mode settings. Silhouette mode is currently OFF.",
-			silhouetteSettings.enabled ?
-				"シルエット撮影モードの小窓を開きます。現在シルエットはONです。" :
-				"シルエット撮影モードの小窓を開きます。現在シルエットはOFFです。"));
+			silhouetteWindowOpen ?
+				"Close Silhouette Photo Mode settings." :
+				"Open Silhouette Photo Mode settings.",
+			silhouetteWindowOpen ?
+				"シルエット撮影モードの小窓を閉じます。" :
+				"シルエット撮影モードの小窓を開きます。"));
 		changed |= CheckboxWithHelp(
 			"Use DoF outside dialogue",
 			"会話外でもDoFを使用",
@@ -1206,7 +1207,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette UI Test 7");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette UI Test 8");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}
