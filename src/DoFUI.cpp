@@ -1207,7 +1207,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette UI Test 9");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette UI Test 10");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}
