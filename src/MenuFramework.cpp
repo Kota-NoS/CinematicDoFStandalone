@@ -132,6 +132,7 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	using GetItemRectFunction = void (*)(ImVec2*);
 	using GetDrawListFunction = void* (*)();
 	using AddCircleFilledFunction = void (*)(void*, ImVec2, float, std::uint32_t, int);
+	using AddConvexPolyFilledFunction = void (*)(void*, const ImVec2*, int, std::uint32_t);
 	using AddRectFilledFunction = void (*)(void*, ImVec2, ImVec2, std::uint32_t, float, int);
 	using AddTriangleFilledFunction = void (*)(void*, ImVec2, ImVec2, ImVec2, std::uint32_t);
 
@@ -144,9 +145,11 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	const auto getFrameHeight = Resolve<GetFrameHeightFunction>("igGetFrameHeight");
 	const auto getDrawList = Resolve<GetDrawListFunction>("igGetWindowDrawList");
 	const auto addCircleFilled = Resolve<AddCircleFilledFunction>("ImDrawList_AddCircleFilled");
+	const auto addConvexPolyFilled = Resolve<AddConvexPolyFilledFunction>("ImDrawList_AddConvexPolyFilled");
 	const auto addRectFilled = Resolve<AddRectFilledFunction>("ImDrawList_AddRectFilled");
 	const auto addTriangleFilled = Resolve<AddTriangleFilledFunction>("ImDrawList_AddTriangleFilled");
-	const auto canDraw = getItemMin && getItemMax && getDrawList && addCircleFilled && addRectFilled && addTriangleFilled;
+	const auto canDraw = getItemMin && getItemMax && getDrawList && addCircleFilled && addConvexPolyFilled &&
+	                     addRectFilled && addTriangleFilled;
 	const auto fallbackLabel = std::string("S") + a_id;
 
 	// Keep the clickable frame in ImGui so hover, active, navigation, and input
@@ -196,26 +199,22 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 			black);
 		addCircleFilled(drawList, circleCenter, circleRadius, black, 24);
 
-		// Repaint the upper-left half of the circle white. Its diameter follows
-		// the same bottom-left-to-top-right diagonal as the background split.
+		// Repaint the upper-left half as one convex polygon. Drawing a triangle
+		// fan produces anti-aliased internal seams and a bright center pinhole.
 		constexpr auto pi = 3.14159265358979323846F;
 		constexpr auto arcSegments = 16;
 		// Screen-space Y grows downward, so 135..315 degrees is the
 		// upper-left semicircle bounded by the rising diagonal.
 		constexpr auto startAngle = pi * 0.75F;
-		for (auto segment = 0; segment < arcSegments; ++segment) {
-			const auto angle0 = startAngle + pi * static_cast<float>(segment) / static_cast<float>(arcSegments);
-			const auto angle1 = startAngle + pi * static_cast<float>(segment + 1) / static_cast<float>(arcSegments);
-			const ImVec2 point0{
-				circleCenter.x + std::cos(angle0) * circleRadius,
-				circleCenter.y + std::sin(angle0) * circleRadius
+		std::array<ImVec2, arcSegments + 1> upperLeftHalf{};
+		for (auto point = 0; point <= arcSegments; ++point) {
+			const auto angle = startAngle + pi * static_cast<float>(point) / static_cast<float>(arcSegments);
+			upperLeftHalf[point] = ImVec2{
+				circleCenter.x + std::cos(angle) * circleRadius,
+				circleCenter.y + std::sin(angle) * circleRadius
 			};
-			const ImVec2 point1{
-				circleCenter.x + std::cos(angle1) * circleRadius,
-				circleCenter.y + std::sin(angle1) * circleRadius
-			};
-			addTriangleFilled(drawList, circleCenter, point0, point1, white);
 		}
+		addConvexPolyFilled(drawList, upperLeftHalf.data(), static_cast<int>(upperLeftHalf.size()), white);
 		if (a_active) {
 			const auto lampRadius = std::max(1.4F, tileWidth * 0.085F);
 			const ImVec2 lampCenter{ whiteMaximum.x - lampRadius * 1.35F, whiteMinimum.y + lampRadius * 1.35F };
