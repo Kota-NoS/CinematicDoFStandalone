@@ -128,6 +128,7 @@ bool CDoF::MenuFramework::Button(const char* a_label)
 bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 {
 	using ButtonFunction = bool (*)(const char*, ImVec2);
+	using GetFrameHeightFunction = float (*)();
 	using GetItemRectFunction = void (*)(ImVec2*);
 	using GetDrawListFunction = void* (*)();
 	using AddCircleFilledFunction = void (*)(void*, ImVec2, float, std::uint32_t, int);
@@ -139,6 +140,7 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	}
 	const auto getItemMin = Resolve<GetItemRectFunction>("igGetItemRectMin");
 	const auto getItemMax = Resolve<GetItemRectFunction>("igGetItemRectMax");
+	const auto getFrameHeight = Resolve<GetFrameHeightFunction>("igGetFrameHeight");
 	const auto getDrawList = Resolve<GetDrawListFunction>("igGetWindowDrawList");
 	const auto addCircleFilled = Resolve<AddCircleFilledFunction>("ImDrawList_AddCircleFilled");
 	const auto addRectFilled = Resolve<AddRectFilledFunction>("ImDrawList_AddRectFilled");
@@ -149,7 +151,8 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	// behavior match every other Menu Framework button. The visible person is
 	// drawn over an ID-only label and therefore does not depend on font glyphs.
 	// An ASCII S remains as a compatibility fallback for older frameworks.
-	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ 36.0F, 36.0F });
+	const auto buttonSide = getFrameHeight ? std::max(getFrameHeight(), 1.0F) : 28.0F;
+	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ buttonSide, buttonSide });
 	if (!canDraw) {
 		return pressed;
 	}
@@ -163,7 +166,7 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	const auto side = std::min(width, height);
 	const auto left = minimum.x + (width - side) * 0.5F;
 	const auto top = minimum.y + (height - side) * 0.5F;
-	const auto outerInset = std::max(2.0F, side * 0.067F);
+	const auto outerInset = std::max(1.0F, side * 0.055F);
 	const auto activeBorder = a_active ? std::max(1.5F, side * 0.075F) : 0.0F;
 	const ImVec2 tileMinimum{ left + outerInset, top + outerInset };
 	const ImVec2 tileMaximum{ left + side - outerInset, top + side - outerInset };
@@ -175,17 +178,20 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	const auto black = 0xFF000000U;
 	const auto white = 0xFFFFFFFFU;
 	const auto orange = 0xFF1F9EFFU;  // ABGR
-	const auto headRadius = std::max(2.0F, std::min(tileWidth, tileHeight) * 0.17F);
-	const ImVec2 headCenter{ centerX, whiteMinimum.y + tileHeight * 0.34F };
-	const ImVec2 bodyMinimum{ whiteMinimum.x + tileWidth * 0.23F, whiteMinimum.y + tileHeight * 0.47F };
-	const ImVec2 bodyMaximum{ whiteMaximum.x - tileWidth * 0.23F, whiteMinimum.y + tileHeight * 0.88F };
+	const auto headRadius = std::max(2.0F, std::min(tileWidth, tileHeight) * 0.18F);
+	const ImVec2 headCenter{ centerX, whiteMinimum.y + tileHeight * 0.30F };
+	const ImVec2 shoulderMinimum{ whiteMinimum.x + tileWidth * 0.20F, whiteMinimum.y + tileHeight * 0.43F };
+	const ImVec2 shoulderMaximum{ whiteMaximum.x - tileWidth * 0.20F, whiteMinimum.y + tileHeight * 0.84F };
+	const ImVec2 lowerBodyMinimum{ shoulderMinimum.x, whiteMinimum.y + tileHeight * 0.64F };
+	const ImVec2 lowerBodyMaximum{ shoulderMaximum.x, whiteMaximum.y };
 
 	if (auto* drawList = getDrawList()) {
 		if (a_active) {
 			addRectFilled(drawList, tileMinimum, tileMaximum, orange, 2.0F, 0);
 		}
 		addRectFilled(drawList, whiteMinimum, whiteMaximum, white, 1.5F, 0);
-		addRectFilled(drawList, bodyMinimum, bodyMaximum, black, headRadius, 0);
+		addRectFilled(drawList, shoulderMinimum, shoulderMaximum, black, tileWidth * 0.26F, 0);
+		addRectFilled(drawList, lowerBodyMinimum, lowerBodyMaximum, black, 0.0F, 0);
 		addCircleFilled(drawList, headCenter, headRadius, black, 16);
 		if (a_active) {
 			const auto lampRadius = std::max(1.4F, tileWidth * 0.085F);
