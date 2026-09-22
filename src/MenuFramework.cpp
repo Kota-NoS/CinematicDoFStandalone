@@ -133,6 +133,7 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	using GetDrawListFunction = void* (*)();
 	using AddCircleFilledFunction = void (*)(void*, ImVec2, float, std::uint32_t, int);
 	using AddRectFilledFunction = void (*)(void*, ImVec2, ImVec2, std::uint32_t, float, int);
+	using AddTriangleFilledFunction = void (*)(void*, ImVec2, ImVec2, ImVec2, std::uint32_t);
 
 	const auto button = Resolve<ButtonFunction>("igButton");
 	if (!button) {
@@ -144,12 +145,13 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	const auto getDrawList = Resolve<GetDrawListFunction>("igGetWindowDrawList");
 	const auto addCircleFilled = Resolve<AddCircleFilledFunction>("ImDrawList_AddCircleFilled");
 	const auto addRectFilled = Resolve<AddRectFilledFunction>("ImDrawList_AddRectFilled");
-	const auto canDraw = getItemMin && getItemMax && getDrawList && addCircleFilled && addRectFilled;
+	const auto addTriangleFilled = Resolve<AddTriangleFilledFunction>("ImDrawList_AddTriangleFilled");
+	const auto canDraw = getItemMin && getItemMax && getDrawList && addCircleFilled && addRectFilled && addTriangleFilled;
 	const auto fallbackLabel = std::string("S") + a_id;
 
 	// Keep the clickable frame in ImGui so hover, active, navigation, and input
-	// behavior match every other Menu Framework button. The visible person is
-	// drawn over an ID-only label and therefore does not depend on font glyphs.
+	// behavior match every other Menu Framework button. The visible contrast
+	// mark is drawn over an ID-only label and therefore does not depend on fonts.
 	// An ASCII S remains as a compatibility fallback for older frameworks.
 	const auto buttonSide = getFrameHeight ? std::max(getFrameHeight(), 1.0F) : 28.0F;
 	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ buttonSide, buttonSide });
@@ -178,21 +180,40 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	const auto black = 0xFF000000U;
 	const auto white = 0xFFFFFFFFU;
 	const auto orange = 0xFF1F9EFFU;  // ABGR
-	const auto headRadius = std::max(2.0F, std::min(tileWidth, tileHeight) * 0.19F);
-	const ImVec2 headCenter{ centerX, whiteMinimum.y + tileHeight * 0.28F };
-	const auto bodyRadius = std::max(3.0F, tileWidth * 0.31F);
-	const ImVec2 bodyCenter{ centerX, whiteMinimum.y + tileHeight * 0.69F };
-	const ImVec2 lowerBodyMinimum{ centerX - bodyRadius, bodyCenter.y };
-	const ImVec2 lowerBodyMaximum{ centerX + bodyRadius, whiteMaximum.y };
+	const auto circleRadius = std::max(2.5F, std::min(tileWidth, tileHeight) * 0.31F);
+	const ImVec2 circleCenter{ centerX, (whiteMinimum.y + whiteMaximum.y) * 0.5F };
 
 	if (auto* drawList = getDrawList()) {
 		if (a_active) {
 			addRectFilled(drawList, tileMinimum, tileMaximum, orange, 2.0F, 0);
 		}
 		addRectFilled(drawList, whiteMinimum, whiteMaximum, white, 1.5F, 0);
-		addCircleFilled(drawList, bodyCenter, bodyRadius, black, 20);
-		addRectFilled(drawList, lowerBodyMinimum, lowerBodyMaximum, black, 0.0F, 0);
-		addCircleFilled(drawList, headCenter, headRadius, black, 16);
+		addTriangleFilled(
+			drawList,
+			whiteMinimum,
+			ImVec2{ whiteMaximum.x, whiteMinimum.y },
+			ImVec2{ whiteMinimum.x, whiteMaximum.y },
+			black);
+		addCircleFilled(drawList, circleCenter, circleRadius, black, 24);
+
+		// Repaint the upper-left half of the circle white. Its diameter follows
+		// the same bottom-left-to-top-right diagonal as the background split.
+		constexpr auto pi = 3.14159265358979323846F;
+		constexpr auto arcSegments = 12;
+		constexpr auto startAngle = -pi * 0.25F;
+		for (auto segment = 0; segment < arcSegments; ++segment) {
+			const auto angle0 = startAngle + pi * static_cast<float>(segment) / static_cast<float>(arcSegments);
+			const auto angle1 = startAngle + pi * static_cast<float>(segment + 1) / static_cast<float>(arcSegments);
+			const ImVec2 point0{
+				circleCenter.x + std::cos(angle0) * circleRadius,
+				circleCenter.y + std::sin(angle0) * circleRadius
+			};
+			const ImVec2 point1{
+				circleCenter.x + std::cos(angle1) * circleRadius,
+				circleCenter.y + std::sin(angle1) * circleRadius
+			};
+			addTriangleFilled(drawList, circleCenter, point0, point1, white);
+		}
 		if (a_active) {
 			const auto lampRadius = std::max(1.4F, tileWidth * 0.085F);
 			const ImVec2 lampCenter{ whiteMaximum.x - lampRadius * 1.35F, whiteMinimum.y + lampRadius * 1.35F };
