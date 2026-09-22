@@ -180,7 +180,7 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 	const auto black = 0xFF000000U;
 	const auto white = 0xFFFFFFFFU;
 	const auto orange = 0xFF1F9EFFU;  // ABGR
-	const auto circleRadius = std::max(2.5F, std::min(tileWidth, tileHeight) * 0.31F);
+	const auto circleRadius = std::max(2.5F, std::min(tileWidth, tileHeight) * 0.34F);
 	const ImVec2 circleCenter{ centerX, (whiteMinimum.y + whiteMaximum.y) * 0.5F };
 
 	if (auto* drawList = getDrawList()) {
@@ -199,8 +199,10 @@ bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
 		// Repaint the upper-left half of the circle white. Its diameter follows
 		// the same bottom-left-to-top-right diagonal as the background split.
 		constexpr auto pi = 3.14159265358979323846F;
-		constexpr auto arcSegments = 12;
-		constexpr auto startAngle = -pi * 0.25F;
+		constexpr auto arcSegments = 16;
+		// Screen-space Y grows downward, so 135..315 degrees is the
+		// upper-left semicircle bounded by the rising diagonal.
+		constexpr auto startAngle = pi * 0.75F;
 		for (auto segment = 0; segment < arcSegments; ++segment) {
 			const auto angle0 = startAngle + pi * static_cast<float>(segment) / static_cast<float>(arcSegments);
 			const auto angle1 = startAngle + pi * static_cast<float>(segment + 1) / static_cast<float>(arcSegments);
