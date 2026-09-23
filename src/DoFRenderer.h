@@ -168,6 +168,7 @@ namespace CDoF
 		bool silhouetteDisabled_{ false };
 		bool loggedFirstFrame_{ false };
 		bool loggedFirstSilhouetteFrame_{ false };
+		bool loggedSilhouetteDestinationFailure_{ false };
 		bool depthPathChecked_{ false };
 		bool useLowSpecDepthFallback_{ false };
 		bool useStandaloneNonActorTargetGuard_{ false };

@@ -789,20 +789,48 @@ void CDoF::DoFRenderer::ApplySilhouette(RE::RENDER_TARGET a_outputTarget)
 		}
 
 		const auto outputTargetIndex = static_cast<std::int32_t>(a_outputTarget);
-		if (outputTargetIndex < 0 || outputTargetIndex >= RE::RENDER_TARGETS::kTOTAL) {
-			spdlog::error("Silhouette output target {} is outside the flat-runtime render-target table", outputTargetIndex);
-			return;
+		ComPtr<ID3D11Texture2D> framebufferTexture;
+		ID3D11Texture2D* destinationTexture = nullptr;
+		const char* destinationKind = "render target";
+		if (a_outputTarget == RE::RENDER_TARGETS::kFRAMEBUFFER) {
+			if (const auto window = RE::BSGraphics::Renderer::GetCurrentRenderWindow();
+				window && window->renderView) {
+				auto view = reinterpret_cast<ID3D11RenderTargetView*>(window->renderView);
+				ComPtr<ID3D11Resource> framebufferResource;
+				view->GetResource(framebufferResource.GetAddressOf());
+				if (framebufferResource && SUCCEEDED(framebufferResource.As(&framebufferTexture))) {
+					destinationTexture = framebufferTexture.Get();
+					destinationKind = "swap-chain framebuffer";
+				}
+			}
+		} else if (outputTargetIndex >= 0 && outputTargetIndex < RE::RENDER_TARGETS::kTOTAL) {
+			destinationTexture = rendererData.renderTargets[outputTargetIndex].texture;
 		}
-		auto& outputTarget = rendererData.renderTargets[outputTargetIndex];
 		auto& depthStencils = renderer->GetDepthStencilData().depthStencils;
 		auto mainDepth = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV;
-		if (!outputTarget.texture || !mainDepth) {
+		if (!destinationTexture || !mainDepth) {
+			if (!loggedSilhouetteDestinationFailure_) {
+				loggedSilhouetteDestinationFailure_ = true;
+				spdlog::error(
+					"Silhouette could not resolve post-processing output target {}; destination={}, depth={}",
+					outputTargetIndex,
+					static_cast<const void*>(destinationTexture),
+					static_cast<const void*>(mainDepth));
+			}
 			return;
 		}
 
 		D3D11_TEXTURE2D_DESC inputDescription{};
-		outputTarget.texture->GetDesc(&inputDescription);
+		destinationTexture->GetDesc(&inputDescription);
 		if (!IsCompatibleDepth(mainDepth, inputDescription)) {
+			if (!loggedSilhouetteDestinationFailure_) {
+				loggedSilhouetteDestinationFailure_ = true;
+				spdlog::error(
+					"Silhouette post-processing output target {} has incompatible dimensions {}x{}",
+					outputTargetIndex,
+					inputDescription.Width,
+					inputDescription.Height);
+			}
 			return;
 		}
 		const auto renderArea = GetActiveRenderArea(context, inputDescription);
@@ -844,7 +872,7 @@ void CDoF::DoFRenderer::ApplySilhouette(RE::RENDER_TARGET a_outputTarget)
 			1U
 		};
 		context->CopySubresourceRegion(
-			outputTarget.texture,
+			destinationTexture,
 			0,
 			renderArea.left,
 			renderArea.top,
@@ -855,7 +883,8 @@ void CDoF::DoFRenderer::ApplySilhouette(RE::RENDER_TARGET a_outputTarget)
 		if (!loggedFirstSilhouetteFrame_) {
 			loggedFirstSilhouetteFrame_ = true;
 			spdlog::info(
-				"First independent silhouette frame applied successfully to post-processing output target {} (format {})",
+				"First independent silhouette frame applied successfully to {} {} (format {})",
+				destinationKind,
 				outputTargetIndex,
 				static_cast<std::uint32_t>(inputDescription.Format));
 		}
