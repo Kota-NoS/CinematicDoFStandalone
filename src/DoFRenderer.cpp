@@ -773,7 +773,7 @@ void CDoF::DoFRenderer::ApplyDepthStrength(Settings& a_settings, float a_strengt
 	a_settings.nearPlaneMaxBlur = std::clamp(a_settings.nearPlaneMaxBlur * strength, 0.0F, 4.0F);
 }
 
-void CDoF::DoFRenderer::ApplySilhouette()
+void CDoF::DoFRenderer::ApplySilhouette(RE::RENDER_TARGET a_outputTarget)
 {
 	try {
 		const auto renderer = RE::BSGraphics::Renderer::GetSingleton();
@@ -788,15 +788,20 @@ void CDoF::DoFRenderer::ApplySilhouette()
 			return;
 		}
 
-		auto& mainTarget = rendererData.renderTargets[RE::RENDER_TARGETS::kMAIN];
+		const auto outputTargetIndex = static_cast<std::int32_t>(a_outputTarget);
+		if (outputTargetIndex < 0 || outputTargetIndex >= RE::RENDER_TARGETS::kTOTAL) {
+			spdlog::error("Silhouette output target {} is outside the flat-runtime render-target table", outputTargetIndex);
+			return;
+		}
+		auto& outputTarget = rendererData.renderTargets[outputTargetIndex];
 		auto& depthStencils = renderer->GetDepthStencilData().depthStencils;
 		auto mainDepth = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV;
-		if (!mainTarget.texture || !mainDepth) {
+		if (!outputTarget.texture || !mainDepth) {
 			return;
 		}
 
 		D3D11_TEXTURE2D_DESC inputDescription{};
-		mainTarget.texture->GetDesc(&inputDescription);
+		outputTarget.texture->GetDesc(&inputDescription);
 		if (!IsCompatibleDepth(mainDepth, inputDescription)) {
 			return;
 		}
@@ -839,7 +844,7 @@ void CDoF::DoFRenderer::ApplySilhouette()
 			1U
 		};
 		context->CopySubresourceRegion(
-			mainTarget.texture,
+			outputTarget.texture,
 			0,
 			renderArea.left,
 			renderArea.top,
@@ -849,7 +854,10 @@ void CDoF::DoFRenderer::ApplySilhouette()
 			&outputBox);
 		if (!loggedFirstSilhouetteFrame_) {
 			loggedFirstSilhouetteFrame_ = true;
-			spdlog::info("First independent silhouette frame applied successfully");
+			spdlog::info(
+				"First independent silhouette frame applied successfully to post-processing output target {} (format {})",
+				outputTargetIndex,
+				static_cast<std::uint32_t>(inputDescription.Format));
 		}
 	} catch (const std::exception& error) {
 		silhouetteDisabled_ = true;
@@ -862,13 +870,13 @@ void CDoF::DoFRenderer::ApplySilhouette()
 	}
 }
 
-void CDoF::DoFRenderer::ApplyAfterPostProcessing()
+void CDoF::DoFRenderer::ApplyAfterPostProcessing(RE::RENDER_TARGET a_outputTarget)
 {
 	std::scoped_lock lock(mutex_);
 	if (!silhouetteSettings_.enabled || silhouetteDisabled_ || IsSilhouetteMenuBlocked()) {
 		return;
 	}
-	ApplySilhouette();
+	ApplySilhouette(a_outputTarget);
 }
 
 void CDoF::DoFRenderer::ApplyBeforePostProcessing()

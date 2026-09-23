@@ -16,7 +16,7 @@ namespace CDoF
 			TargetFocusSettings a_settings,
 			Settings a_dialogueLensSettings);
 		void ApplyBeforePostProcessing();
-		void ApplyAfterPostProcessing();
+		void ApplyAfterPostProcessing(RE::RENDER_TARGET a_outputTarget);
 
 	private:
 		struct TargetFocusSample
@@ -135,7 +135,7 @@ namespace CDoF
 			std::uint32_t a_renderTop);
 		bool IsMenuBlocked(const Settings& a_settings) const;
 		bool IsSilhouetteMenuBlocked() const;
-		void ApplySilhouette();
+		void ApplySilhouette(RE::RENDER_TARGET a_outputTarget);
 		std::optional<TargetFocusSample> GetDialogueTargetFocus() const;
 		std::optional<TargetFocusSample> GetPlayerTargetFocus() const;
 		std::optional<TargetFocusSample> GetConsoleTargetFocus() const;

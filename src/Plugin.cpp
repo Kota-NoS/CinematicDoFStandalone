@@ -37,7 +37,7 @@ namespace
 			auto& renderer = CDoF::DoFRenderer::GetSingleton();
 			renderer.ApplyBeforePostProcessing();
 			function(a_imageSpaceManager, a_unk1, a_target, a_unk2, a_unk3);
-			renderer.ApplyAfterPostProcessing();
+			renderer.ApplyAfterPostProcessing(a_target);
 		}
 		static inline REL::Relocation<decltype(Thunk)> function;
 	};
