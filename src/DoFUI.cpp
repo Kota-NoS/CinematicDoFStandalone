@@ -971,8 +971,8 @@ namespace
 				&uiSettings.manualFocusMeters,
 				kManualFocusMinMeters,
 				kManualFocusMaxMeters,
-				"Fixed distance from the active camera to the focus plane. The logarithmic slider keeps short-distance control precise while extending to 4000 m for distant scenery.",
-				"現在のカメラからピント面までの固定距離です。対数スライダーで近距離の細かな操作を保ちながら、遠景用に4000mまで指定できます。");
+				"Fixed distance from the active camera to the focus plane. The logarithmic slider keeps short-distance control precise while extending to 2000 m for distant scenery.",
+				"現在のカメラからピント面までの固定距離です。対数スライダーで近距離の細かな操作を保ちながら、遠景用に2000mまで指定できます。");
 		}
 		changed |= SliderWithHelp(
 			"Transition Speed",
@@ -1230,7 +1230,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.2 RC1");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.2 RC2");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}

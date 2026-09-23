@@ -2,7 +2,7 @@
 
 CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a standalone effect. It is based on Jiaye's Community Shaders AIO work, but Community Shaders itself is not required.
 
-Version 1.0.2 adds far-depth moon protection to `Keep Sky Sharp`, an independent two-colour Silhouette Photo Mode, and a logarithmic Fixed Focus distance control covering 0.1-4000 m. Depth-confirmed actor protection, feathered geometry/water boundaries, Skyrim 1.6.1170/1.7.104 support, and existing preset/INI compatibility are retained.
+Version 1.0.2 adds far-depth moon protection to `Keep Sky Sharp`, an independent two-colour Silhouette Photo Mode, and a logarithmic Fixed Focus distance control covering 0.1-2000 m. Depth-confirmed actor protection, feathered geometry/water boundaries, Skyrim 1.6.1170/1.7.104 support, and existing preset/INI compatibility are retained.
 
 ## Features
 
@@ -15,7 +15,7 @@ Version 1.0.2 adds far-depth moon protection to `Keep Sky Sharp`, an independent
 - Option to disable near blur in first person
 - Option to exclude clear-depth sky and far-depth moon pixels from DoF through one `Keep Sky Sharp` switch
 - Independent two-colour Silhouette Photo Mode that also works while DoF is off
-- Logarithmic Fixed Focus distance control from 0.1 to 4000 m
+- Logarithmic Fixed Focus distance control from 0.1 to 2000 m
 - An optional, unassigned-by-default keyboard hotkey for toggling DoF
 - Aperture-shaped bokeh with adjustable blade count, roundness, strength, rotation, and highlight emphasis
 
@@ -43,14 +43,14 @@ For Japanese UI text, set `EnableJapanese=true` under `[Fonts]` in `Data/SKSE/Pl
 
 With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Standalone` → `Depth of Field`.
 
-- Fixed Focus directly sets the camera-to-focus-plane distance from 0.1 to 4000 m. Its logarithmic response retains precise short-range adjustment.
+- Fixed Focus directly sets the camera-to-focus-plane distance from 0.1 to 2000 m. Its logarithmic response retains precise short-range adjustment.
 - Screen AF samples depth at the selected screen X/Y position.
 - Target Tracking uses projected head-node distance for actors and projected reference/anchor distance for non-actors.
 - Target Focus Offset moves the focus plane toward the camera with negative values and farther away with positive values.
 - A practical lens workflow is to set broad depth separation with focal length, refine the in-focus range with the F-number, then set final strength with the near/far maximum blur controls.
 - DoF Hotkey: press the hotkey button beside `Enable DoF`, then press the keyboard key you want to assign. Esc cancels assignment; Backspace or Delete clears it.
 - Sky and moon exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. Moon protection deliberately follows this same switch. Its compatibility default is off, including existing INIs and presets that do not contain the setting.
-- Silhouette Photo Mode: open its compact window with the black/white circle icon beside the DoF hotkey, then choose foreground/background colours and an optional hotkey. It also works while DoF itself is off.
+- Silhouette Photo Mode: open its compact window with the black/white circle icon beside the DoF hotkey, then choose foreground/background colours and an optional hotkey. Its default palette is pure black and white. It also works while DoF itself is off.
 
 Hotkey assignments are saved to the INI and are not part of a preset. Toggling DoF or Silhouette Mode with a hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
 

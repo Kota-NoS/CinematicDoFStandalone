@@ -1,6 +1,6 @@
 # CinematicDoFStandalone 1.0.2
 
-> **Version 1.0.2:** `Keep Sky Sharp` now protects far-depth moon pixels together with the clear-depth sky, the independent two-colour Silhouette Photo Mode is included, and Fixed Focus extends from 0.1 m to 4000 m through a logarithmic control. Existing presets and INIs remain compatible.
+> **Version 1.0.2:** `Keep Sky Sharp` now protects far-depth moon pixels together with the clear-depth sky, the independent two-colour Silhouette Photo Mode is included, and Fixed Focus extends from 0.1 m to 2000 m through a logarithmic control. Existing presets and INIs remain compatible.
 
 ## 日本語
 
@@ -18,7 +18,7 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 - 1人称視点で手前ぼかしを無効にするオプション
 - 地形との境界を滑らかに保ちながら空と遠端深度の月をDoFから除外する、プリセット保存対応のオプション
 - DoF設定やプリセットを変更せず、深度を独立した2色画像へ変換するシルエット撮影モード
-- 近距離の精度を保ったまま0.1～4000mを扱える、対数操作の「ピント距離」
+- 近距離の精度を保ったまま0.1～2000mを扱える、対数操作の「ピント距離」
 - 未割り当てを初期値とするDoF ON/OFFキーボードホットキー
 - 通常プレイ、人物撮影、広角撮影、オブジェクト撮影向けの調整
 - 外部画像を使わず、手前／奥ぼかしのサンプル配置を直接変形し、強くぼけた明点を元の明るさの範囲内で形状として残す絞り形状ボケ
@@ -55,7 +55,7 @@ EnableJapanese=true
 
 SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`Cinematic DoF Standalone` → `Depth of Field`を開きます。
 
-- ピント固定：カメラからピント面までの距離を0.1～4000mで直接指定します。スライダーは近距離の精度を保つ対数操作です。
+- ピント固定：カメラからピント面までの距離を0.1～2000mで直接指定します。スライダーは近距離の精度を保つ対数操作です。
 - 画面位置AF：指定した画面X／Y位置の深度を読み取ります。
 - 対象追従：人物は頭部ノード、非人物は対象の基準位置を投影した距離を使用します。
 - ピント位置補正：マイナスでカメラ側、プラスで奥側へピント面を移動します。
@@ -63,7 +63,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 - DoFホットキー：「DoFを有効にする」の右側にあるホットキーボタンを押し、登録したいキーボードのキーを押します。Escで登録を中止、BackspaceまたはDeleteで登録を解除できます。
 - 会話限定DoF：「DoFを有効にする」をON、「会話外でもDoFを使用」をOFF、「会話中の被写体にピントを合わせる」をONにします。
 - 空の除外：「詳細設定を表示」の右側にある「空を鮮明に保つ」で切り替えます。互換用の基準初期値はOFFです。
-- シルエット撮影：DoFホットキー右側の白黒円アイコンから小窓を開き、前景色・背景色・専用ホットキーを設定します。DoF本体がOFFでも使用できます。
+- シルエット撮影：DoFホットキー右側の白黒円アイコンから小窓を開き、前景色・背景色・専用ホットキーを設定します。初期色は完全な黒／白です。DoF本体がOFFでも使用できます。
 
 ホットキーの割り当てはINIへ保存され、プリセットには含まれません。ホットキーで切り替えたDoF／シルエットのON/OFF状態は自動保存されません。Skyrim本体や他MODと同じキーを割り当てると、両方の操作が実行される場合があります。
 
@@ -116,7 +116,7 @@ CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a
 - Option to disable near blur in first person
 - A preset-saved option that excludes clear-depth sky and far-depth moon pixels from DoF while feathering the boundary against geometry
 - An independent two-colour Silhouette Photo Mode that does not modify DoF settings or presets
-- A logarithmic Fixed Focus distance control covering 0.1-4000 m without sacrificing short-range precision
+- A logarithmic Fixed Focus distance control covering 0.1-2000 m without sacrificing short-range precision
 - An optional, unassigned-by-default keyboard hotkey for toggling DoF
 - Presets designed for gameplay, portraits, wide shots, first-person shots, and object photography
 - Aperture-shaped bokeh that deforms near/far blur samples and can selectively emphasize bright shaped bokeh, with adjustable blade count, roundness, strength, and rotation; no external mask image is required
@@ -152,7 +152,7 @@ EnableJapanese=true
 
 With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Standalone` → `Depth of Field`.
 
-- Fixed Focus: directly sets the camera-to-focus-plane distance from 0.1 to 4000 m. Its logarithmic response retains precise short-range adjustment.
+- Fixed Focus: directly sets the camera-to-focus-plane distance from 0.1 to 2000 m. Its logarithmic response retains precise short-range adjustment.
 - Screen AF: samples depth at the selected screen X/Y position.
 - Target Tracking: actors use the projected head-node distance; non-actors use the projected reference/anchor distance.
 - Target Focus Offset: negative values move the focus plane toward the camera; positive values move it farther away.
@@ -160,7 +160,7 @@ With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Sta
 - DoF Hotkey: press the hotkey button beside `Enable DoF`, then press the keyboard key you want to assign. Esc cancels assignment; Backspace or Delete clears it.
 - Dialogue-only DoF: enable `Enable DoF`, disable `Use DoF outside dialogue`, and keep dialogue focus enabled.
 - Sky exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. Its compatibility default is off.
-- Silhouette Photo Mode: open its compact window with the black/white circle icon beside the DoF hotkey, then choose foreground/background colours and an optional hotkey. It also works while DoF itself is off.
+- Silhouette Photo Mode: open its compact window with the black/white circle icon beside the DoF hotkey, then choose foreground/background colours and an optional hotkey. Its default palette is pure black and white. It also works while DoF itself is off.
 
 Hotkey assignments are saved to the INI and are not part of a preset. Toggling DoF or Silhouette Mode with a hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
 

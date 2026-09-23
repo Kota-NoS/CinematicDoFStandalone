@@ -5,7 +5,7 @@ namespace CDoF
 	inline constexpr std::uint32_t kPresetSlotCount{ 9 };
 	inline constexpr std::uint32_t kMaxPresetIndex{ kPresetSlotCount - 1 };
 	inline constexpr float kManualFocusMinMeters{ 0.1F };
-	inline constexpr float kManualFocusMaxMeters{ 4000.0F };
+	inline constexpr float kManualFocusMaxMeters{ 2000.0F };
 
 	enum class TargetFocusSource : std::uint32_t
 	{
@@ -65,7 +65,7 @@ namespace CDoF
 	{
 		bool enabled{ false };
 		std::array<float, 3> foregroundColor{ 0.0F, 0.0F, 0.0F };
-		std::array<float, 3> backgroundColor{ 1.0F, 0.62F, 0.12F };
+		std::array<float, 3> backgroundColor{ 1.0F, 1.0F, 1.0F };
 	};
 
 	struct InterfaceSettings
