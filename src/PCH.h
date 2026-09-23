@@ -5,6 +5,7 @@
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
+#include <dxgi1_4.h>
 #include <wrl/client.h>
 
 #include <spdlog/sinks/basic_file_sink.h>
