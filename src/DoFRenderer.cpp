@@ -862,13 +862,22 @@ void CDoF::DoFRenderer::ApplySilhouette()
 	}
 }
 
-void CDoF::DoFRenderer::Apply()
+void CDoF::DoFRenderer::ApplyAfterPostProcessing()
 {
 	std::scoped_lock lock(mutex_);
+	if (!silhouetteSettings_.enabled || silhouetteDisabled_ || IsSilhouetteMenuBlocked()) {
+		return;
+	}
+	ApplySilhouette();
+}
+
+void CDoF::DoFRenderer::ApplyBeforePostProcessing()
+{
+	std::scoped_lock lock(mutex_);
+	// Silhouette colors are display-space choices.  Apply them only after the
+	// game's image-space pass so exposure, tonemapping, and color grading cannot
+	// tint an exact white/black palette.  Normal DoF remains on this HDR-side path.
 	if (silhouetteSettings_.enabled) {
-		if (!silhouetteDisabled_ && !IsSilhouetteMenuBlocked()) {
-			ApplySilhouette();
-		}
 		return;
 	}
 	if (!settings_.enabled || permanentlyDisabled_) {

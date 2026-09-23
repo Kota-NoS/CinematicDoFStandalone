@@ -34,8 +34,10 @@ namespace
 			if (!firstMainPathLogged.exchange(true)) {
 				spdlog::info("Entered main post-processing path");
 			}
-			CDoF::DoFRenderer::GetSingleton().Apply();
+			auto& renderer = CDoF::DoFRenderer::GetSingleton();
+			renderer.ApplyBeforePostProcessing();
 			function(a_imageSpaceManager, a_unk1, a_target, a_unk2, a_unk3);
+			renderer.ApplyAfterPostProcessing();
 		}
 		static inline REL::Relocation<decltype(Thunk)> function;
 	};

@@ -15,7 +15,8 @@ namespace CDoF
 		void SetTargetFocus(
 			TargetFocusSettings a_settings,
 			Settings a_dialogueLensSettings);
-		void Apply();
+		void ApplyBeforePostProcessing();
+		void ApplyAfterPostProcessing();
 
 	private:
 		struct TargetFocusSample
