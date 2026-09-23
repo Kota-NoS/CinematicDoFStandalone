@@ -272,137 +272,18 @@ float GetSkyClearDepthMask(uint2 renderPixel)
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
 
-float3 EncodeDiagnosticColor(float3 linearColor)
+float GetMoonFarDepthProtection(uint2 renderPixel)
 {
-	// Skyrim's imagespace target is logarithmically encoded. Encode the diagnostic
-	// palette before writing it so red/green/blue categories remain recognizable.
-	const float linearRange = 14.0f;
-	const float linearGrey = 0.18f;
-	const float exposureGrey = 444.0f;
-	const float logBlackLinear = exp2((0.0f - exposureGrey / 1023.0f) * linearRange) * linearGrey;
-	return saturate(
-		log2(max(linearColor + logBlackLinear, 1e-6f)) / linearRange -
-		log2(linearGrey) / linearRange + exposureGrey / 1023.0f);
-}
+	if (KeepSkySharp == 0)
+		return 0.0f;
 
-float GetDiagnosticFarPlaneRatio(float rawDepth)
-{
-	float linearDepth = max(SharedData::GetScreenDepth(rawDepth), 0.0f);
-	return saturate(linearDepth / max(SharedData::CameraData.x, 1.0f));
-}
-
-float3 GetDiagnosticFarPlaneRatioColor(float rawDepth)
-{
-	// Clear sky has no geometry depth. Written depth is expressed relative to the
-	// current camera far plane so the diagnostic remains comparable when Skyrim
-	// changes its absolute draw distance between locations or weather states.
-	if (rawDepth >= 1.0f)
-		return float3(0.0f, 0.0f, 0.0f);
-
-	float ratio = GetDiagnosticFarPlaneRatio(rawDepth);
-	if (ratio < 0.90f)
-		return float3(1.0f, 0.0f, 0.0f);       // red: below 90%
-	if (ratio < 0.95f)
-		return float3(1.0f, 0.35f, 0.0f);      // orange: 90-95%
-	if (ratio < 0.98f)
-		return float3(1.0f, 1.0f, 0.0f);       // yellow: 95-98%
-	if (ratio < 0.99f)
-		return float3(0.0f, 1.0f, 0.0f);       // green: 98-99%
-	if (ratio < 0.995f)
-		return float3(0.0f, 1.0f, 1.0f);       // cyan: 99-99.5%
-	if (ratio < 0.998f)
-		return float3(0.0f, 0.15f, 1.0f);      // blue: 99.5-99.8%
-	if (ratio < 0.9995f)
-		return float3(1.0f, 0.0f, 1.0f);       // magenta: 99.8-99.95%
-	return float3(1.0f, 1.0f, 1.0f);          // white: 99.95% or farther
-}
-
-float3 GetDiagnosticRawFarGapColor(float rawDepth)
-{
-	// Near the far plane, tiny differences in raw depth can collapse into the
-	// same rounded linear-distance band. Log-like gap bands retain that detail.
-	if (rawDepth >= 1.0f)
-		return float3(0.0f, 0.0f, 0.0f);
-
-	float clearGap = max(1.0f - rawDepth, 0.0f);
-	if (clearGap >= 1e-4f)
-		return float3(1.0f, 0.0f, 0.0f);       // red: gap >= 1e-4
-	if (clearGap >= 3e-5f)
-		return float3(1.0f, 0.35f, 0.0f);      // orange: 3e-5 to 1e-4
-	if (clearGap >= 1e-5f)
-		return float3(1.0f, 1.0f, 0.0f);       // yellow: 1e-5 to 3e-5
-	if (clearGap >= 3e-6f)
-		return float3(0.0f, 1.0f, 0.0f);       // green: 3e-6 to 1e-5
-	if (clearGap >= 1e-6f)
-		return float3(0.0f, 1.0f, 1.0f);       // cyan: 1e-6 to 3e-6
-	if (clearGap >= 3e-7f)
-		return float3(0.0f, 0.15f, 1.0f);      // blue: 3e-7 to 1e-6
-	if (clearGap >= 1e-7f)
-		return float3(1.0f, 0.0f, 1.0f);       // magenta: 1e-7 to 3e-7
-	return float3(1.0f, 1.0f, 1.0f);          // white: gap below 1e-7
-}
-
-float3 GetFarPlaneRatioDiagnosticColor(uint2 renderPixel)
-{
-	uint2 renderDimensions = GetFullResolutionDimensions();
-	uint2 split = max(uint2(1, 1), renderDimensions / 2);
-	bool right = renderPixel.x >= split.x;
-	bool bottom = renderPixel.y >= split.y;
-	uint2 panelOrigin = uint2(right ? split.x : 0, bottom ? split.y : 0);
-	uint2 panelDimensions = uint2(
-		right ? renderDimensions.x - split.x : split.x,
-		bottom ? renderDimensions.y - split.y : split.y);
-	uint2 panelPixel = renderPixel - panelOrigin;
-
-	// A bright divider makes the four views unambiguous in screenshots.
-	if (panelPixel.x < 2 || panelPixel.y < 2)
-		return EncodeDiagnosticColor(float3(1.0f, 1.0f, 1.0f));
-
-	float2 panelUV = (float2(panelPixel) + 0.5f) /
-		max(float2(panelDimensions), float2(1.0f, 1.0f));
-	uint2 sourceRenderPixel = min(uint2(panelUV * float2(renderDimensions)), renderDimensions - 1);
-	uint2 sourceInputPixel = GetInputPixel(sourceRenderPixel);
-
-	float currentDepth = SkyMaskDepthTexture[sourceInputPixel];
-	float nativeDepth = NativeMainDepthAvailable != 0 ?
-		NativeMainDepthTexture[sourceInputPixel] : 1.0f;
-
-	float3 color = 0.0f.xxx;
-
-	if (!right && !bottom) {
-		// Top-left: linear depth as a percentage of the current camera far plane.
-		color = GetDiagnosticFarPlaneRatioColor(currentDepth);
-	} else if (right && !bottom) {
-		// Top-right: fine raw-depth gap bands from the currently exposed depth.
-		color = GetDiagnosticRawFarGapColor(currentDepth);
-	} else if (!right && bottom) {
-		// Bottom-left: the same fine bands from untouched native kMAIN depth.
-		color = NativeMainDepthAvailable == 0 ? float3(1.0f, 0.0f, 1.0f) :
-			GetDiagnosticRawFarGapColor(nativeDepth);
-	} else {
-		// Bottom-right: raw numerical comparison between exposed and native depth.
-		// Black=both clear, yellow=only one writes, green=within one raw-depth
-		// quantum, red=exposed is nearer, blue=exposed is farther.
-		if (NativeMainDepthAvailable == 0) {
-			color = float3(1.0f, 0.0f, 1.0f);
-		} else {
-			bool currentClear = currentDepth >= 1.0f;
-			bool nativeClear = nativeDepth >= 1.0f;
-			if (currentClear && nativeClear) {
-				color = float3(0.0f, 0.0f, 0.0f);
-			} else if (currentClear != nativeClear) {
-				color = float3(1.0f, 1.0f, 0.0f);
-			} else {
-				float rawDifference = abs(currentDepth - nativeDepth);
-				if (rawDifference <= 1e-7f)
-					color = float3(0.0f, 1.0f, 0.0f);
-				else
-					color = currentDepth < nativeDepth ? float3(1.0f, 0.0f, 0.0f) : float3(0.0f, 0.15f, 1.0f);
-			}
-		}
-	}
-
-	return EncodeDiagnosticColor(color);
+	// Test 26 measured the moon at a raw-depth clear gap of 1e-7..3e-7 in
+	// every tested sea view. Even the farthest water and terrain remained at
+	// 3e-6 or more. Classify only pixels actually written immediately below the
+	// 1.0 clear value: untouched sky is excluded, as are nearer occluders.
+	float rawDepth = SkyMaskDepthTexture[GetInputPixel(renderPixel)];
+	float clearGap = 1.0f - rawDepth;
+	return rawDepth < 1.0f && clearGap > 0.0f && clearGap < 1e-6f ? 1.0f : 0.0f;
 }
 
 float GetSkyHighlightEligibility(float2 renderUV)
@@ -416,7 +297,8 @@ float GetSkyHighlightEligibility(float2 renderUV)
 	// cannot become a bright-bokeh source. Ordinary gather weights remain intact.
 	float2 clampedUV = ClampFullResolutionUV(renderUV);
 	uint2 renderPixel = ClampFullResolutionPixel(int2(clampedUV * SharedData::BufferDim.xy));
-	return 1.0f - GetSkyClearDepthMask(renderPixel);
+	float skyOrMoon = max(GetSkyClearDepthMask(renderPixel), GetMoonFarDepthProtection(renderPixel));
+	return 1.0f - skyOrMoon;
 }
 
 float GetSkyRingSafety(uint2 renderPixel, int radius)
@@ -929,6 +811,11 @@ float4 PerformFullFragmentGaussianBlur(Texture2D source, float2 texcoord, uint2 
 	// boundary does not become a hard cut-out.
 	float skyProtection = GetSkyInteriorProtection(DTid);
 	coc = lerp(coc, 0.0f, skyProtection);
+	// The moon writes a depth value immediately below the clear value even when
+	// only a sliver is visible. Zero its CoC per pixel, without tracking a centre,
+	// fitting a circle, or retaining any off-screen history.
+	float moonProtection = GetMoonFarDepthProtection(DTid);
+	coc = lerp(coc, 0.0f, moonProtection);
 	// Use one depth-confirmed subject guard on both sides of the focus plane.  The
 	// previous close-up head exception ignored depth and could expose its projected
 	// circle around the neck or near a screen edge.
@@ -1256,16 +1143,44 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	RWTexOut[DTid] = float4(GetFarPlaneRatioDiagnosticColor(DTid), 1.0f);
+	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
+	// first blend far plane with original buffer, then near plane on top of that.
+	float4 sourceFragment = TexColor[GetInputPixel(DTid)];
+	float4 originalFragment = sourceFragment;
+	originalFragment.rgb = AccentuateWhites(originalFragment.rgb, uv);
+	float2 halfResolutionUV = ClampHalfResolutionUV(uv);
+	float4 farFragment = TexFarBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
+	float4 nearFragment = TexNearBlur.SampleLevel(LinearSampler, halfResolutionUV, 0);
+	float pixelCoC = TexCoCInput[DTid].r;
+	// multiply with far plane max blur so if we need to have 0 blur we get full res
+	float realCoC = pixelCoC * saturate(FarPlaneMaxBlur);
+	// all CoC's > 0.1 are full far fragment, below that, we're going to blend. This avoids shimmering far plane without the need of a
+	// 'magic' number to boost up the alpha.
+	float blendFactor = (realCoC > 0.1) ? 1 : smoothstep(0, 1, (realCoC / 0.1));
+	float4 color;
+	color = lerp(originalFragment, farFragment, blendFactor);
+	float nearBlend = nearFragment.a * (NearPlaneMaxBlur != 0);
+	float nearBlurProtection = max(GetTargetDepthProtection(uv), GetFocusRangeProtection(uv));
+	nearBlend *= 1.0f - nearBlurProtection;
+	color.rgb = lerp(color.rgb, nearFragment.rgb, nearBlend);
+	float skyProtection = RecoverSkyInteriorProtection(DTid, uv, pixelCoC);
+	color.rgb = lerp(color.rgb, sourceFragment.rgb, skyProtection);
+	// Restore the exact source texel for the moon. This is deliberately repeated
+	// after both blur layers so a near foreground object cannot punch a blurred
+	// circular or historical mask into the scene.
+	float moonProtection = GetMoonFarDepthProtection(DTid);
+	color.rgb = lerp(color.rgb, sourceFragment.rgb, moonProtection);
+	color.a = 1.0;
+	RWTexOut[DTid] = color;
 }
 
 [numthreads(8, 8, 1)] void CS_PostSmoothing1(uint2 DTid : SV_DispatchThreadID) {
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	// Diagnostic output must remain discrete; normal post smoothing would blend
-	// the class colours at every silhouette.
-	RWTexOut[DTid] = TexColor[DTid];
+	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
+
+	RWTexOut[DTid] = PerformFullFragmentGaussianBlur(TexColor, uv, DTid, float2((SharedData::BufferDim.z), 0.0));
 }
 
 	[numthreads(8, 8, 1)] void CS_PostSmoothing2AndFocusing(uint2 DTid : SV_DispatchThreadID)
@@ -1273,5 +1188,17 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	RWTexOut[DTid] = TexColor[DTid];
+	float2 uv = (DTid.xy + 0.5f) * SharedData::BufferDim.zw;
+
+	float4 color = PerformFullFragmentGaussianBlur(TexPostSmoothInput, uv, DTid, float2(0.0, (SharedData::BufferDim.w)));
+	float4 originalColor = TexColor[GetInputPixel(DTid)];
+
+	float coc = abs(TexCoCInput[DTid].r);
+	color.rgb = lerp(originalColor.rgb, color.rgb, saturate(coc < length(SharedData::BufferDim.zw) ? 0 : 4 * coc));
+	// Final restoration prevents the full-resolution smoothing passes from
+	// softening a moon pixel whose CoC was deliberately set to zero.
+	float moonProtection = GetMoonFarDepthProtection(DTid);
+	color.rgb = lerp(color.rgb, originalColor.rgb, moonProtection);
+
+	RWTexOut[DTid] = float4(color.rgb, 1.0f);
 }
