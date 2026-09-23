@@ -328,7 +328,7 @@ bool CDoF::DoFRenderer::EnsureNativeMainDepthView(
 	if (viewFormat == DXGI_FORMAT_UNKNOWN || textureDescription.SampleDesc.Count != 1 ||
 		(textureDescription.BindFlags & D3D11_BIND_SHADER_RESOURCE) == 0) {
 		spdlog::warn(
-			"[Far Depth Bands Diagnostic Test 25] Native main depth cannot be exposed (format={}, samples={}, bind=0x{:X})",
+			"[Far Plane Ratio Diagnostic Test 26] Native main depth cannot be exposed (format={}, samples={}, bind=0x{:X})",
 			static_cast<std::uint32_t>(textureDescription.Format),
 			textureDescription.SampleDesc.Count,
 			textureDescription.BindFlags);
@@ -355,7 +355,7 @@ bool CDoF::DoFRenderer::EnsureNativeMainDepthView(
 	resources_.nativeMainDepthResource = a_texture;
 	resources_.nativeMainDepthSRV = std::move(view);
 	spdlog::info(
-		"[Far Depth Bands Diagnostic Test 25] Created native main-depth view: {}x{}, texture format={}, view format={}",
+		"[Far Plane Ratio Diagnostic Test 26] Created native main-depth view: {}x{}, texture format={}, view format={}",
 		textureDescription.Width,
 		textureDescription.Height,
 		static_cast<std::uint32_t>(textureDescription.Format),
@@ -1010,7 +1010,7 @@ void CDoF::DoFRenderer::Apply()
 			lastCurrentDepthUsesNative_ = currentDepthUsesNative;
 			const auto currentDescription = GetTextureDescription(mainDepth);
 			spdlog::info(
-				"[Far Depth Bands Diagnostic Test 25] Exposed main depth now uses {} resource ({}x{}, format={}); native view={}",
+				"[Far Plane Ratio Diagnostic Test 26] Exposed main depth now uses {} resource ({}x{}, format={}); native view={}",
 				currentDepthUsesNative ? "the native" : "a substituted",
 				currentDescription ? currentDescription->Width : 0U,
 				currentDescription ? currentDescription->Height : 0U,

@@ -285,37 +285,64 @@ float3 EncodeDiagnosticColor(float3 linearColor)
 		log2(linearGrey) / linearRange + exposureGrey / 1023.0f);
 }
 
-float GetDiagnosticDepthKilometres(float rawDepth)
+float GetDiagnosticFarPlaneRatio(float rawDepth)
 {
-	return max(SharedData::GetScreenDepth(rawDepth) * GAME_UNIT_TO_M * 0.001f, 0.0f);
+	float linearDepth = max(SharedData::GetScreenDepth(rawDepth), 0.0f);
+	return saturate(linearDepth / max(SharedData::CameraData.x, 1.0f));
 }
 
-float3 GetDiagnosticDepthBandColor(float rawDepth)
+float3 GetDiagnosticFarPlaneRatioColor(float rawDepth)
 {
-	// Clear sky has no geometry depth. Written depth is divided into broad,
-	// memorable distance bands so a screenshot identifies a usable moon cutoff.
+	// Clear sky has no geometry depth. Written depth is expressed relative to the
+	// current camera far plane so the diagnostic remains comparable when Skyrim
+	// changes its absolute draw distance between locations or weather states.
 	if (rawDepth >= 1.0f)
 		return float3(0.0f, 0.0f, 0.0f);
 
-	float depthKm = GetDiagnosticDepthKilometres(rawDepth);
-	if (depthKm < 0.05f)
-		return float3(1.0f, 0.0f, 0.0f);       // red: below 50 m
-	if (depthKm < 0.10f)
-		return float3(1.0f, 0.35f, 0.0f);      // orange: 50-100 m
-	if (depthKm < 0.25f)
-		return float3(1.0f, 1.0f, 0.0f);       // yellow: 100-250 m
-	if (depthKm < 0.50f)
-		return float3(0.0f, 1.0f, 0.0f);       // green: 250-500 m
-	if (depthKm < 1.00f)
-		return float3(0.0f, 1.0f, 1.0f);       // cyan: 500 m-1 km
-	if (depthKm < 2.00f)
-		return float3(0.0f, 0.15f, 1.0f);      // blue: 1-2 km
-	if (depthKm < 4.00f)
-		return float3(1.0f, 0.0f, 1.0f);       // magenta: 2-4 km
-	return float3(1.0f, 1.0f, 1.0f);          // white: 4 km or farther
+	float ratio = GetDiagnosticFarPlaneRatio(rawDepth);
+	if (ratio < 0.90f)
+		return float3(1.0f, 0.0f, 0.0f);       // red: below 90%
+	if (ratio < 0.95f)
+		return float3(1.0f, 0.35f, 0.0f);      // orange: 90-95%
+	if (ratio < 0.98f)
+		return float3(1.0f, 1.0f, 0.0f);       // yellow: 95-98%
+	if (ratio < 0.99f)
+		return float3(0.0f, 1.0f, 0.0f);       // green: 98-99%
+	if (ratio < 0.995f)
+		return float3(0.0f, 1.0f, 1.0f);       // cyan: 99-99.5%
+	if (ratio < 0.998f)
+		return float3(0.0f, 0.15f, 1.0f);      // blue: 99.5-99.8%
+	if (ratio < 0.9995f)
+		return float3(1.0f, 0.0f, 1.0f);       // magenta: 99.8-99.95%
+	return float3(1.0f, 1.0f, 1.0f);          // white: 99.95% or farther
 }
 
-float3 GetFarDepthBandsDiagnosticColor(uint2 renderPixel)
+float3 GetDiagnosticRawFarGapColor(float rawDepth)
+{
+	// Near the far plane, tiny differences in raw depth can collapse into the
+	// same rounded linear-distance band. Log-like gap bands retain that detail.
+	if (rawDepth >= 1.0f)
+		return float3(0.0f, 0.0f, 0.0f);
+
+	float clearGap = max(1.0f - rawDepth, 0.0f);
+	if (clearGap >= 1e-4f)
+		return float3(1.0f, 0.0f, 0.0f);       // red: gap >= 1e-4
+	if (clearGap >= 3e-5f)
+		return float3(1.0f, 0.35f, 0.0f);      // orange: 3e-5 to 1e-4
+	if (clearGap >= 1e-5f)
+		return float3(1.0f, 1.0f, 0.0f);       // yellow: 1e-5 to 3e-5
+	if (clearGap >= 3e-6f)
+		return float3(0.0f, 1.0f, 0.0f);       // green: 3e-6 to 1e-5
+	if (clearGap >= 1e-6f)
+		return float3(0.0f, 1.0f, 1.0f);       // cyan: 1e-6 to 3e-6
+	if (clearGap >= 3e-7f)
+		return float3(0.0f, 0.15f, 1.0f);      // blue: 3e-7 to 1e-6
+	if (clearGap >= 1e-7f)
+		return float3(1.0f, 0.0f, 1.0f);       // magenta: 1e-7 to 3e-7
+	return float3(1.0f, 1.0f, 1.0f);          // white: gap below 1e-7
+}
+
+float3 GetFarPlaneRatioDiagnosticColor(uint2 renderPixel)
 {
 	uint2 renderDimensions = GetFullResolutionDimensions();
 	uint2 split = max(uint2(1, 1), renderDimensions / 2);
@@ -335,10 +362,7 @@ float3 GetFarDepthBandsDiagnosticColor(uint2 renderPixel)
 		max(float2(panelDimensions), float2(1.0f, 1.0f));
 	uint2 sourceRenderPixel = min(uint2(panelUV * float2(renderDimensions)), renderDimensions - 1);
 	uint2 sourceInputPixel = GetInputPixel(sourceRenderPixel);
-	float2 sourceRenderUV = (float2(sourceRenderPixel) + 0.5f) * SharedData::BufferDim.zw;
 
-	float rawWater = WaterMaskAvailable != 0 ?
-		WaterMaskTexture.SampleLevel(LinearSampler, GetInputUV(sourceRenderUV), 0).z : 0.0f;
 	float currentDepth = SkyMaskDepthTexture[sourceInputPixel];
 	float nativeDepth = NativeMainDepthAvailable != 0 ?
 		NativeMainDepthTexture[sourceInputPixel] : 1.0f;
@@ -346,24 +370,19 @@ float3 GetFarDepthBandsDiagnosticColor(uint2 renderPixel)
 	float3 color = 0.0f.xxx;
 
 	if (!right && !bottom) {
-		// Top-left: kRAW_WATER.z. Positive values are cyan, negative values orange.
-		if (WaterMaskAvailable == 0)
-			color = float3(1.0f, 0.0f, 1.0f);
-		else if (rawWater >= 1e-4f)
-			color = lerp(float3(0.0f, 0.08f, 0.08f), float3(0.0f, 1.0f, 1.0f), saturate(rawWater * 4.0f));
-		else if (rawWater <= -1e-4f)
-			color = lerp(float3(0.08f, 0.03f, 0.0f), float3(1.0f, 0.35f, 0.0f), saturate(-rawWater * 4.0f));
+		// Top-left: linear depth as a percentage of the current camera far plane.
+		color = GetDiagnosticFarPlaneRatioColor(currentDepth);
 	} else if (right && !bottom) {
-		// Top-right: linear-distance bands from the currently exposed depth.
-		color = GetDiagnosticDepthBandColor(currentDepth);
+		// Top-right: fine raw-depth gap bands from the currently exposed depth.
+		color = GetDiagnosticRawFarGapColor(currentDepth);
 	} else if (!right && bottom) {
-		// Bottom-left: the same bands from the untouched native kMAIN depth.
+		// Bottom-left: the same fine bands from untouched native kMAIN depth.
 		color = NativeMainDepthAvailable == 0 ? float3(1.0f, 0.0f, 1.0f) :
-			GetDiagnosticDepthBandColor(nativeDepth);
+			GetDiagnosticRawFarGapColor(nativeDepth);
 	} else {
-		// Bottom-right: numerical comparison between exposed and native depth.
-		// Black=both clear, yellow=only one writes, green=agreement, cyan=agreement
-		// on water, red=exposed is nearer, blue=exposed is farther.
+		// Bottom-right: raw numerical comparison between exposed and native depth.
+		// Black=both clear, yellow=only one writes, green=within one raw-depth
+		// quantum, red=exposed is nearer, blue=exposed is farther.
 		if (NativeMainDepthAvailable == 0) {
 			color = float3(1.0f, 0.0f, 1.0f);
 		} else {
@@ -374,13 +393,11 @@ float3 GetFarDepthBandsDiagnosticColor(uint2 renderPixel)
 			} else if (currentClear != nativeClear) {
 				color = float3(1.0f, 1.0f, 0.0f);
 			} else {
-				float currentKm = GetDiagnosticDepthKilometres(currentDepth);
-				float nativeKm = GetDiagnosticDepthKilometres(nativeDepth);
-				float relativeDifference = abs(currentKm - nativeKm) / max(nativeKm, 0.001f);
-				if (relativeDifference <= 0.005f)
-					color = rawWater >= 1e-4f ? float3(0.0f, 1.0f, 1.0f) : float3(0.0f, 1.0f, 0.0f);
+				float rawDifference = abs(currentDepth - nativeDepth);
+				if (rawDifference <= 1e-7f)
+					color = float3(0.0f, 1.0f, 0.0f);
 				else
-					color = currentKm < nativeKm ? float3(1.0f, 0.0f, 0.0f) : float3(0.0f, 0.15f, 1.0f);
+					color = currentDepth < nativeDepth ? float3(1.0f, 0.0f, 0.0f) : float3(0.0f, 0.15f, 1.0f);
 			}
 		}
 	}
@@ -1239,7 +1256,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	RWTexOut[DTid] = float4(GetFarDepthBandsDiagnosticColor(DTid), 1.0f);
+	RWTexOut[DTid] = float4(GetFarPlaneRatioDiagnosticColor(DTid), 1.0f);
 }
 
 [numthreads(8, 8, 1)] void CS_PostSmoothing1(uint2 DTid : SV_DispatchThreadID) {
