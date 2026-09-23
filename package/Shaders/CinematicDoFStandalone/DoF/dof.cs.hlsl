@@ -285,7 +285,37 @@ float3 EncodeDiagnosticColor(float3 linearColor)
 		log2(linearGrey) / linearRange + exposureGrey / 1023.0f);
 }
 
-float3 GetTerrainDepthSourceDiagnosticColor(uint2 renderPixel)
+float GetDiagnosticDepthKilometres(float rawDepth)
+{
+	return max(SharedData::GetScreenDepth(rawDepth) * GAME_UNIT_TO_M * 0.001f, 0.0f);
+}
+
+float3 GetDiagnosticDepthBandColor(float rawDepth)
+{
+	// Clear sky has no geometry depth. Written depth is divided into broad,
+	// memorable distance bands so a screenshot identifies a usable moon cutoff.
+	if (rawDepth >= 1.0f)
+		return float3(0.0f, 0.0f, 0.0f);
+
+	float depthKm = GetDiagnosticDepthKilometres(rawDepth);
+	if (depthKm < 0.05f)
+		return float3(1.0f, 0.0f, 0.0f);       // red: below 50 m
+	if (depthKm < 0.10f)
+		return float3(1.0f, 0.35f, 0.0f);      // orange: 50-100 m
+	if (depthKm < 0.25f)
+		return float3(1.0f, 1.0f, 0.0f);       // yellow: 100-250 m
+	if (depthKm < 0.50f)
+		return float3(0.0f, 1.0f, 0.0f);       // green: 250-500 m
+	if (depthKm < 1.00f)
+		return float3(0.0f, 1.0f, 1.0f);       // cyan: 500 m-1 km
+	if (depthKm < 2.00f)
+		return float3(0.0f, 0.15f, 1.0f);      // blue: 1-2 km
+	if (depthKm < 4.00f)
+		return float3(1.0f, 0.0f, 1.0f);       // magenta: 2-4 km
+	return float3(1.0f, 1.0f, 1.0f);          // white: 4 km or farther
+}
+
+float3 GetFarDepthBandsDiagnosticColor(uint2 renderPixel)
 {
 	uint2 renderDimensions = GetFullResolutionDimensions();
 	uint2 split = max(uint2(1, 1), renderDimensions / 2);
@@ -313,9 +343,6 @@ float3 GetTerrainDepthSourceDiagnosticColor(uint2 renderPixel)
 	float nativeDepth = NativeMainDepthAvailable != 0 ?
 		NativeMainDepthTexture[sourceInputPixel] : 1.0f;
 
-	float rawPositive = rawWater >= 1e-4f ? 1.0f : 0.0f;
-	float currentWritten = currentDepth < 1.0f ? 1.0f : 0.0f;
-	float nativeWritten = nativeDepth < 1.0f ? 1.0f : 0.0f;
 	float3 color = 0.0f.xxx;
 
 	if (!right && !bottom) {
@@ -327,16 +354,35 @@ float3 GetTerrainDepthSourceDiagnosticColor(uint2 renderPixel)
 		else if (rawWater <= -1e-4f)
 			color = lerp(float3(0.08f, 0.03f, 0.0f), float3(1.0f, 0.35f, 0.0f), saturate(-rawWater * 4.0f));
 	} else if (right && !bottom) {
-		// Top-right: depth SRV currently exposed by the game/Community Shaders.
-		color = currentWritten != 0.0f ? float3(0.0f, 1.0f, 0.0f) : float3(0.0f, 0.0f, 0.08f);
+		// Top-right: linear-distance bands from the currently exposed depth.
+		color = GetDiagnosticDepthBandColor(currentDepth);
 	} else if (!right && bottom) {
-		// Bottom-left: a fresh SRV made from the native kMAIN depth texture.
+		// Bottom-left: the same bands from the untouched native kMAIN depth.
 		color = NativeMainDepthAvailable == 0 ? float3(1.0f, 0.0f, 1.0f) :
-			(nativeWritten != 0.0f ? float3(0.0f, 0.25f, 1.0f) : float3(0.08f, 0.0f, 0.0f));
+			GetDiagnosticDepthBandColor(nativeDepth);
 	} else {
-		// Bottom-right: bitwise overlap. R=raw water, G=exposed depth, B=native depth.
-		color = NativeMainDepthAvailable == 0 ? float3(1.0f, 0.0f, 1.0f) :
-			float3(rawPositive, currentWritten, nativeWritten);
+		// Bottom-right: numerical comparison between exposed and native depth.
+		// Black=both clear, yellow=only one writes, green=agreement, cyan=agreement
+		// on water, red=exposed is nearer, blue=exposed is farther.
+		if (NativeMainDepthAvailable == 0) {
+			color = float3(1.0f, 0.0f, 1.0f);
+		} else {
+			bool currentClear = currentDepth >= 1.0f;
+			bool nativeClear = nativeDepth >= 1.0f;
+			if (currentClear && nativeClear) {
+				color = float3(0.0f, 0.0f, 0.0f);
+			} else if (currentClear != nativeClear) {
+				color = float3(1.0f, 1.0f, 0.0f);
+			} else {
+				float currentKm = GetDiagnosticDepthKilometres(currentDepth);
+				float nativeKm = GetDiagnosticDepthKilometres(nativeDepth);
+				float relativeDifference = abs(currentKm - nativeKm) / max(nativeKm, 0.001f);
+				if (relativeDifference <= 0.005f)
+					color = rawWater >= 1e-4f ? float3(0.0f, 1.0f, 1.0f) : float3(0.0f, 1.0f, 0.0f);
+				else
+					color = currentKm < nativeKm ? float3(1.0f, 0.0f, 0.0f) : float3(0.0f, 0.15f, 1.0f);
+			}
+		}
 	}
 
 	return EncodeDiagnosticColor(color);
@@ -1193,7 +1239,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	RWTexOut[DTid] = float4(GetTerrainDepthSourceDiagnosticColor(DTid), 1.0f);
+	RWTexOut[DTid] = float4(GetFarDepthBandsDiagnosticColor(DTid), 1.0f);
 }
 
 [numthreads(8, 8, 1)] void CS_PostSmoothing1(uint2 DTid : SV_DispatchThreadID) {
