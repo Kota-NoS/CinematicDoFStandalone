@@ -127,6 +127,30 @@ namespace
 		return changed;
 	}
 
+	bool LogDistanceSliderWithHelp(
+		const char* a_englishLabel,
+		const char* a_japaneseLabel,
+		float* a_valueMeters,
+		float a_minMeters,
+		float a_maxMeters,
+		const char* a_englishHelp,
+		const char* a_japaneseHelp)
+	{
+		const auto clampedMeters = std::clamp(*a_valueMeters, a_minMeters, a_maxMeters);
+		const auto logRange = std::log(a_maxMeters / a_minMeters);
+		float sliderPosition = std::log(clampedMeters / a_minMeters) / logRange;
+		const auto valueText = std::format("{:.2f} m", clampedMeters);
+		const auto label = std::string(Localized(a_englishLabel, a_japaneseLabel));
+		const auto changed = MenuFramework::SliderFloat(
+			label.c_str(), &sliderPosition, 0.0F, 1.0F, valueText.c_str());
+		if (changed) {
+			sliderPosition = std::clamp(sliderPosition, 0.0F, 1.0F);
+			*a_valueMeters = a_minMeters * std::exp(logRange * sliderPosition);
+		}
+		MenuFramework::ItemTooltip(Localized(a_englishHelp, a_japaneseHelp));
+		return changed;
+	}
+
 	bool ChoiceButton(
 		const char* a_englishLabel,
 		const char* a_japaneseLabel,
@@ -941,15 +965,14 @@ namespace
 				"Offsets the sampled screen depth. Negative moves focus toward the camera; positive moves it farther away.",
 				"画面から取得した距離を補正します。マイナスでカメラ側、プラスで取得地点より奥へピント面を移動します。");
 		} else if (!targetFocusSettings.consoleEnabled) {
-			changed |= SliderWithHelp(
+			changed |= LogDistanceSliderWithHelp(
 				"Focus Distance",
 				"ピント距離",
 				&uiSettings.manualFocusMeters,
-				0.1F,
-				150.0F,
-				"%.2f m",
-				"Fixed distance from the active camera to the focus plane.",
-				"現在のカメラからピント面までの固定距離です。");
+				kManualFocusMinMeters,
+				kManualFocusMaxMeters,
+				"Fixed distance from the active camera to the focus plane. The logarithmic slider keeps short-distance control precise while extending to 4000 m for distant scenery.",
+				"現在のカメラからピント面までの固定距離です。対数スライダーで近距離の細かな操作を保ちながら、遠景用に4000mまで指定できます。");
 		}
 		changed |= SliderWithHelp(
 			"Transition Speed",
@@ -1016,8 +1039,8 @@ namespace
 			"Keep Sky Sharp",
 			"空を鮮明に保つ",
 			&uiSettings.keepSkySharp,
-			"Excludes clear-depth sky pixels from DoF while preserving a soft boundary around geometry. Moons and other sky objects that write depth can still be blurred.",
-			"深度が未描画の空をDoFから除外し、地形との境界は滑らかに保ちます。月など深度を書き込む天体はぼける場合があります。");
+			"Excludes clear-depth sky pixels and far-depth moon pixels from DoF while preserving a soft boundary around geometry. Moon protection follows this same switch.",
+			"深度が未描画の空と遠端深度の月をDoFから除外し、地形との境界は滑らかに保ちます。月の保護もこのスイッチに連動します。");
 		if (showAdvanced) {
 			MenuFramework::SeparatorText(Localized("Bokeh and Quality", "画質・ボケの詳細"));
 			changed |= CheckboxWithHelp(
@@ -1207,7 +1230,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.1 - Silhouette UI Test 13");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.2 RC1");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}

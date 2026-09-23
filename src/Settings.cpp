@@ -117,7 +117,10 @@ namespace
 		a_defaults.focusY = Clamp(ReadFloat(a_section, L"FocusY", a_defaults.focusY), 0.0F, 1.0F);
 		a_defaults.autoFocusOffsetMeters = Clamp(
 			ReadFloat(a_section, L"AutoFocusOffsetMeters", a_defaults.autoFocusOffsetMeters), -10.0F, 10.0F);
-		a_defaults.manualFocusMeters = Clamp(ReadFloat(a_section, L"ManualFocusMeters", a_defaults.manualFocusMeters), 0.1F, 150.0F);
+		a_defaults.manualFocusMeters = Clamp(
+			ReadFloat(a_section, L"ManualFocusMeters", a_defaults.manualFocusMeters),
+			CDoF::kManualFocusMinMeters,
+			CDoF::kManualFocusMaxMeters);
 		a_defaults.focalLength = Clamp(ReadFloat(a_section, L"FocalLength", a_defaults.focalLength), 1.0F, 300.0F);
 		a_defaults.fNumber = Clamp(ReadFloat(a_section, L"FNumber", a_defaults.fNumber), 1.0F, 22.0F);
 		a_defaults.nearFocusRangeMeters = Clamp(

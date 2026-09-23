@@ -133,8 +133,6 @@ Texture2D<float4> TexFarGatherColor1 : register(t8);
 Texture2D<float4> TexFarGatherColor2 : register(t9);
 Texture2D<float4> TexFarGatherColor3 : register(t10);
 Texture2D<float> SkyMaskDepthTexture : register(t11);
-Texture2D<float4> WaterMaskTexture : register(t12);
-Texture2D<float> NativeMainDepthTexture : register(t13);
 
 cbuffer DoFCB : register(b1)
 {
@@ -167,8 +165,7 @@ cbuffer DoFCB : register(b1)
 	float HeadGuardRadius;
 	uint KeepSkySharp;
 	float2 TargetGuardAxis;
-	uint WaterMaskAvailable;
-	uint NativeMainDepthAvailable;
+	uint2 pad4;
 };
 
 cbuffer SilhouetteCB : register(b2)
@@ -313,7 +310,11 @@ float GetSkyHighlightEligibility(float2 renderUV)
 	// cannot become a bright-bokeh source. Ordinary gather weights remain intact.
 	float2 clampedUV = ClampFullResolutionUV(renderUV);
 	uint2 renderPixel = ClampFullResolutionPixel(int2(clampedUV * SharedData::BufferDim.xy));
-	float skyOrMoon = max(GetSkyClearDepthMask(renderPixel), GetMoonFarDepthProtection(renderPixel));
+	float rawDepth = SkyMaskDepthTexture[GetInputPixel(renderPixel)];
+	float clearGap = 1.0f - rawDepth;
+	float skyMask = rawDepth >= 1.0f ? 1.0f : 0.0f;
+	float moonMask = clearGap > 0.0f && clearGap < 1e-6f ? 1.0f : 0.0f;
+	float skyOrMoon = max(skyMask, moonMask);
 	return 1.0f - skyOrMoon;
 }
 

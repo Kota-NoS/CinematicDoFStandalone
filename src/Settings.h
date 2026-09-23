@@ -4,6 +4,8 @@ namespace CDoF
 {
 	inline constexpr std::uint32_t kPresetSlotCount{ 9 };
 	inline constexpr std::uint32_t kMaxPresetIndex{ kPresetSlotCount - 1 };
+	inline constexpr float kManualFocusMinMeters{ 0.1F };
+	inline constexpr float kManualFocusMaxMeters{ 4000.0F };
 
 	enum class TargetFocusSource : std::uint32_t
 	{

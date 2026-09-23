@@ -1,6 +1,6 @@
-# CinematicDoFStandalone 1.0.1
+# CinematicDoFStandalone 1.0.2
 
-> **Version 1.0.1:** This update adds depth-confirmed actor protection and an optional sky-preserving DoF path with feathered geometry and water boundaries. Sky pixels are also excluded from bright-bokeh amplification, preserving the mod's depth while preventing horizon seams and bright outlines. Skyrim 1.6.1170 and 1.7.104 support is retained.
+> **Version 1.0.2:** `Keep Sky Sharp` now protects far-depth moon pixels together with the clear-depth sky, the independent two-colour Silhouette Photo Mode is included, and Fixed Focus extends from 0.1 m to 4000 m through a logarithmic control. Existing presets and INIs remain compatible.
 
 ## 日本語
 
@@ -16,7 +16,9 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 - 会話中の被写体への自動フォーカス
 - 通常時のDoFを止め、会話中だけDoFを使用する独立オプション
 - 1人称視点で手前ぼかしを無効にするオプション
-- 地形との境界を滑らかに保ちながら空をDoFから除外する、プリセット保存対応のオプション
+- 地形との境界を滑らかに保ちながら空と遠端深度の月をDoFから除外する、プリセット保存対応のオプション
+- DoF設定やプリセットを変更せず、深度を独立した2色画像へ変換するシルエット撮影モード
+- 近距離の精度を保ったまま0.1～4000mを扱える、対数操作の「ピント距離」
 - 未割り当てを初期値とするDoF ON/OFFキーボードホットキー
 - 通常プレイ、人物撮影、広角撮影、オブジェクト撮影向けの調整
 - 外部画像を使わず、手前／奥ぼかしのサンプル配置を直接変形し、強くぼけた明点を元の明るさの範囲内で形状として残す絞り形状ボケ
@@ -28,7 +30,7 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0（ゲーム内UIを使う場合のみ）
 
-ビルドはSkyrim SE／AEを対象とします。1.0.1の新機能はAE 1.6.1170で実ゲーム確認済みです。1.7.104対応とAddress Library v5形式は、1.0.0で検証済みの経路を維持します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
+ビルドはSkyrim SE／AEを対象とします。1.0.2の月保護はメイン環境、Community Shadersなし、最小環境、`bUse64bitsHDRRenderTarget=0`の最小環境で実ゲーム確認済みです。1.7.104対応とAddress Library v5形式は、1.0.0で検証済みの経路を維持します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
 
 人物追従中は、Community ShadersやHDR設定にかかわらず、画面上の人物範囲と実際の深度を組み合わせた共通の人物保護を使用します。接写時に深度を無視して頭部を強制保護する処理は使用せず、首周りや画面端の背景を人物として保護しないようにします。Community Shaders併用時はHDR設定にかかわらず、有効な人物追従中だけ、保存値を変更せず手前ピント範囲の実効値を最低0.17 mにします。非人物の追従対象には適用されません。既存のCommunity Shaders深度フォールバック条件は維持します。
 
@@ -53,7 +55,7 @@ EnableJapanese=true
 
 SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`Cinematic DoF Standalone` → `Depth of Field`を開きます。
 
-- ピント固定：カメラからピント面までの距離を直接指定します。
+- ピント固定：カメラからピント面までの距離を0.1～4000mで直接指定します。スライダーは近距離の精度を保つ対数操作です。
 - 画面位置AF：指定した画面X／Y位置の深度を読み取ります。
 - 対象追従：人物は頭部ノード、非人物は対象の基準位置を投影した距離を使用します。
 - ピント位置補正：マイナスでカメラ側、プラスで奥側へピント面を移動します。
@@ -61,8 +63,9 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 - DoFホットキー：「DoFを有効にする」の右側にあるホットキーボタンを押し、登録したいキーボードのキーを押します。Escで登録を中止、BackspaceまたはDeleteで登録を解除できます。
 - 会話限定DoF：「DoFを有効にする」をON、「会話外でもDoFを使用」をOFF、「会話中の被写体にピントを合わせる」をONにします。
 - 空の除外：「詳細設定を表示」の右側にある「空を鮮明に保つ」で切り替えます。互換用の基準初期値はOFFです。
+- シルエット撮影：DoFホットキー右側の白黒円アイコンから小窓を開き、前景色・背景色・専用ホットキーを設定します。DoF本体がOFFでも使用できます。
 
-ホットキーの割り当てはINIへ保存され、プリセットには含まれません。ホットキーで切り替えたDoFのON/OFF状態は自動保存されません。Skyrim本体や他MODと同じキーを割り当てると、両方の操作が実行される場合があります。
+ホットキーの割り当てはINIへ保存され、プリセットには含まれません。ホットキーで切り替えたDoF／シルエットのON/OFF状態は自動保存されません。Skyrim本体や他MODと同じキーを割り当てると、両方の操作が実行される場合があります。
 
 ### プリセットとINI保存
 
@@ -83,13 +86,14 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 - プリセット番号／「適用」：保存済みのDoF・会話フォーカス・対象追従設定を現在映像へ適用します。プリセット枠と次回起動設定は変更しません。
 - 現在値を保存：現在映像へ適用中のDoF・会話フォーカス・対象追従設定を、そのプリセット枠へ保存します。次回起動設定とUI言語は変更しません。
 - 初期値へ戻す：同じボタンを2回押すと、配布時の初期値を保存せず映像へ適用します。プリセット枠へ保存する場合は、その後「現在値を保存」を押します。
-- 次回起動設定を保存：現在映像へ適用中の主スイッチ・会話外DoF・DoF・会話フォーカス・対象追従設定とUI言語を、次回起動時の設定として保存します。プリセット枠は上書きしません。
+- 次回起動設定を保存：現在映像へ適用中の主スイッチ・会話外DoF・DoF・シルエット・会話フォーカス・対象追従設定とUI言語を、次回起動時の設定として保存します。プリセット枠は上書きしません。
 - INIを再読み込み：保存済みの次回起動設定とプリセット枠をINIから読み直します。
 
 ### 補足
 
 - 1人称で通常プレイする場合は、詳細設定の「一人称の手前ぼかし」をOFFにすると武器や手元が鮮明になります。
-- 「空を鮮明に保つ」は未描画の深度から空を判定します。既存INIや既存プリセットにこの設定がない場合はOFFとして読み込み、従来どおり空をぼかします。配布プリセットは必要な枠だけ個別にONを指定できます。月など深度を書き込む天体はぼける場合があります。
+- 「空を鮮明に保つ」は未描画の深度から空を判定し、同じスイッチで遠端深度の月も保護します。既存INIや既存プリセットにこの設定がない場合はOFFとして読み込み、従来どおり空と月をぼかします。配布プリセットは必要な枠だけ個別にONを指定できます。
+- シルエット撮影モードは現在のメイン深度だけで前景／背景を分類します。水面、月、半透明物、パーティクルは、そのフレームでメイン深度へ書き込まれたかどうかに従います。
 - 「絞り形状ボケ」は初期状態でOFFです。ONにすると、強くピンぼけした明るい点が設定した絞り形状に近づきます。「明るいボケの強調」は、ぼかし平均で薄まる前の明点へ近づける量を調整します。元映像の明点を超える無制限な発光を追加する機能ではありません。
 - 非常に大きなボケを低い「ぼかし品質」で描画すると、サンプル密度不足によりボケが輪や点へ分裂して見える場合があります。これは既知の制限です。必要に応じて品質を上げるか、最大ぼかしを弱めてください。
 - 「周辺ボケの強さ」は、画面周辺の既存ボケを接線方向へ引き延ばし、渦巻くレンズボケを再現します。
@@ -110,7 +114,9 @@ CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a
 - Automatic focus on the conversation subject during dialogue
 - A preset-independent option to use DoF only during dialogue
 - Option to disable near blur in first person
-- A preset-saved option that excludes the sky from DoF while feathering its boundary against geometry
+- A preset-saved option that excludes clear-depth sky and far-depth moon pixels from DoF while feathering the boundary against geometry
+- An independent two-colour Silhouette Photo Mode that does not modify DoF settings or presets
+- A logarithmic Fixed Focus distance control covering 0.1-4000 m without sacrificing short-range precision
 - An optional, unassigned-by-default keyboard hotkey for toggling DoF
 - Presets designed for gameplay, portraits, wide shots, first-person shots, and object photography
 - Aperture-shaped bokeh that deforms near/far blur samples and can selectively emphasize bright shaped bokeh, with adjustable blade count, roundness, strength, and rotation; no external mask image is required
@@ -122,7 +128,7 @@ CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0 only if you want the in-game UI
 
-The build targets Skyrim SE and AE. Version 1.0.1's new features were tested in game on AE 1.6.1170. Skyrim 1.7.104 support and the Address Library v5 path retain the route validated for version 1.0.0. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
+The build targets Skyrim SE and AE. Version 1.0.2's moon protection was tested in game with the main setup, without Community Shaders, in a minimal setup, and in that minimal setup with `bUse64bitsHDRRenderTarget=0`. Skyrim 1.7.104 support and the Address Library v5 path retain the route validated for version 1.0.0. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
 
 While an actor is tracked, one subject-protection path combines the projected actor area with measured depth regardless of Community Shaders or HDR settings. It does not use the former close-up head override that ignored depth, preventing the projected head circle from protecting neck gaps or edge-of-frame background. With Community Shaders, a valid tracked actor receives an effective near-focus floor of 0.17 m regardless of the HDR setting, without changing the saved value. Non-actor targets do not receive it. The established Community Shaders depth-fallback conditions are retained.
 
@@ -146,7 +152,7 @@ EnableJapanese=true
 
 With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Standalone` → `Depth of Field`.
 
-- Fixed Focus: directly sets the distance from the camera to the focus plane.
+- Fixed Focus: directly sets the camera-to-focus-plane distance from 0.1 to 4000 m. Its logarithmic response retains precise short-range adjustment.
 - Screen AF: samples depth at the selected screen X/Y position.
 - Target Tracking: actors use the projected head-node distance; non-actors use the projected reference/anchor distance.
 - Target Focus Offset: negative values move the focus plane toward the camera; positive values move it farther away.
@@ -154,8 +160,9 @@ With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Sta
 - DoF Hotkey: press the hotkey button beside `Enable DoF`, then press the keyboard key you want to assign. Esc cancels assignment; Backspace or Delete clears it.
 - Dialogue-only DoF: enable `Enable DoF`, disable `Use DoF outside dialogue`, and keep dialogue focus enabled.
 - Sky exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. Its compatibility default is off.
+- Silhouette Photo Mode: open its compact window with the black/white circle icon beside the DoF hotkey, then choose foreground/background colours and an optional hotkey. It also works while DoF itself is off.
 
-The key assignment is saved to the INI and is not part of a preset. Toggling DoF with the hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
+Hotkey assignments are saved to the INI and are not part of a preset. Toggling DoF or Silhouette Mode with a hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
 
 ### Presets and INI saving
 
@@ -166,13 +173,14 @@ When updating from an older version, Custom 1 and Custom 2 keep their original n
 - Preset number / Apply: applies the stored DoF, dialogue-focus, and target-tracking values to the current image. It does not change the preset slot or startup settings.
 - Store Current: saves the currently applied DoF, dialogue-focus, and target-tracking values in that preset slot. It does not change startup settings or the UI language.
 - Restore Defaults: press twice to apply the bundled defaults without saving. Press Store Current afterward if you want to overwrite the preset slot.
-- Save Startup Settings: saves the master switch, normal-gameplay mode, DoF, dialogue-focus, target-tracking, and UI-language values for the next launch. It does not overwrite any preset slot.
+- Save Startup Settings: saves the master switch, normal-gameplay mode, DoF, silhouette, dialogue-focus, target-tracking, and UI-language values for the next launch. It does not overwrite any preset slot.
 - Reload INI: reloads the saved startup settings and saved preset slots from the INI.
 
 ### Notes
 
 - For normal first-person play, disable `First-Person Near Blur` in Advanced Settings to keep weapons and hands sharp.
-- `Keep Sky Sharp` identifies the sky from unwritten depth. Existing INIs and presets without this setting load it as disabled, retaining the original blurred sky. Bundled presets can explicitly opt in per slot. Moons and other sky objects that write depth can still be blurred.
+- `Keep Sky Sharp` identifies the sky from unwritten depth and protects far-depth moon pixels through the same switch. Existing INIs and presets without this setting load it as disabled, retaining the original blurred sky and moon. Bundled presets can explicitly opt in per slot.
+- Silhouette Photo Mode classifies foreground/background solely from the current main depth. Water, moons, transparent objects, and particles follow whether they wrote main depth in that frame.
 - `Aperture Bokeh` is off by default. When enabled, strongly defocused bright points take on the selected aperture shape. `Highlight Boost` controls how far the blurred result moves toward the brightest eligible shaped sample. It does not add unrestricted brightness beyond the sampled source highlight.
 - Very large blur discs rendered at low `Blur Quality` can separate into visible rings or points because the gather has insufficient sample density. This is a known limitation. Raise quality or reduce maximum blur if needed.
 - `Petzval Strength` stretches existing peripheral blur tangentially to create a swirling lens effect.

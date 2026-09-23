@@ -68,8 +68,6 @@ namespace CDoF
 			Texture cocTileNeighbor;
 			Texture cocBlur1;
 			Texture cocBlur2;
-			ComPtr<ID3D11Texture2D> nativeMainDepthResource;
-			ComPtr<ID3D11ShaderResourceView> nativeMainDepthSRV;
 			ComPtr<ID3D11Buffer> dofConstants;
 			ComPtr<ID3D11Buffer> silhouetteConstants;
 			ComPtr<ID3D11Buffer> sharedConstants;
@@ -113,15 +111,12 @@ namespace CDoF
 		bool CompileShaders(ID3D11Device* a_device);
 		bool CreateTexture(ID3D11Device* a_device, Texture& a_texture, DXGI_FORMAT a_format, std::uint32_t a_width, std::uint32_t a_height);
 		bool CreateConstantBuffer(ID3D11Device* a_device, std::uint32_t a_size, ComPtr<ID3D11Buffer>& a_buffer);
-		bool EnsureNativeMainDepthView(ID3D11Device* a_device, ID3D11Texture2D* a_texture);
 		bool UpdateConstantBuffer(ID3D11DeviceContext* a_context, ID3D11Buffer* a_buffer, const void* a_data, std::uint32_t a_size);
 		void Dispatch(
 			ID3D11DeviceContext* a_context,
 			ID3D11ShaderResourceView* a_color,
 			ID3D11ShaderResourceView* a_depth,
 			ID3D11ShaderResourceView* a_skyMaskDepth,
-			ID3D11ShaderResourceView* a_nativeMainDepth,
-			ID3D11ShaderResourceView* a_waterMask,
 			const Settings& a_settings,
 			const TargetFocusSample* a_targetGuard,
 			float a_targetNearFocusMinimumMeters,
@@ -181,8 +176,6 @@ namespace CDoF
 		bool loggedTargetGuard_{ false };
 		bool loggedTargetNearFocusAssist_{ false };
 		bool loggedRenderAreaDiagnostics_{ false };
-		bool loggedWaterMaskDiagnostics_{ false };
-		std::optional<bool> lastCurrentDepthUsesNative_{};
 		bool dialogueOnlyPrewarmed_{ false };
 		TargetFocusMode targetFocusMode_{ TargetFocusMode::kNone };
 		std::mutex mutex_;
