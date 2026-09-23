@@ -134,6 +134,7 @@ Texture2D<float4> TexFarGatherColor2 : register(t9);
 Texture2D<float4> TexFarGatherColor3 : register(t10);
 Texture2D<float> SkyMaskDepthTexture : register(t11);
 Texture2D<float4> WaterMaskTexture : register(t12);
+Texture2D<float> NativeMainDepthTexture : register(t13);
 
 cbuffer DoFCB : register(b1)
 {
@@ -167,7 +168,7 @@ cbuffer DoFCB : register(b1)
 	uint KeepSkySharp;
 	float2 TargetGuardAxis;
 	uint WaterMaskAvailable;
-	uint pad4;
+	uint NativeMainDepthAvailable;
 };
 
 #define SENSOR_SIZE 0.024f
@@ -271,20 +272,74 @@ float GetSkyClearDepthMask(uint2 renderPixel)
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
 
-float3 GetCommunityShadersWaterMaskDiagnosticColor(uint2 renderPixel)
+float3 EncodeDiagnosticColor(float3 linearColor)
 {
-	// A full magenta frame means the renderer did not expose a readable raw
-	// water target. This keeps "unavailable" distinct from a valid empty mask.
-	if (WaterMaskAvailable == 0)
-		return float3(1.0f, 0.0f, 1.0f);
+	// Skyrim's imagespace target is logarithmically encoded. Encode the diagnostic
+	// palette before writing it so red/green/blue categories remain recognizable.
+	const float linearRange = 14.0f;
+	const float linearGrey = 0.18f;
+	const float exposureGrey = 444.0f;
+	const float logBlackLinear = exp2((0.0f - exposureGrey / 1023.0f) * linearRange) * linearGrey;
+	return saturate(
+		log2(max(linearColor + logBlackLinear, 1e-6f)) / linearRange -
+		log2(linearGrey) / linearRange + exposureGrey / 1023.0f);
+}
 
-	float2 renderUV = (float2(renderPixel) + 0.5f) * SharedData::BufferDim.zw;
-	float waterMask = WaterMaskTexture.SampleLevel(LinearSampler, GetInputUV(renderUV), 0).z;
-	float coverage = saturate((waterMask - 1e-4f) / (1e-3f - 1e-4f));
+float3 GetTerrainDepthSourceDiagnosticColor(uint2 renderPixel)
+{
+	uint2 renderDimensions = GetFullResolutionDimensions();
+	uint2 split = max(uint2(1, 1), renderDimensions / 2);
+	bool right = renderPixel.x >= split.x;
+	bool bottom = renderPixel.y >= split.y;
+	uint2 panelOrigin = uint2(right ? split.x : 0, bottom ? split.y : 0);
+	uint2 panelDimensions = uint2(
+		right ? renderDimensions.x - split.x : split.x,
+		bottom ? renderDimensions.y - split.y : split.y);
+	uint2 panelPixel = renderPixel - panelOrigin;
 
-	// Match Community Shaders' own WaterBlend mask interpretation. Valid water
-	// appears cyan; everything else, including depth-writing moons, stays black.
-	return lerp(float3(0.0f, 0.0f, 0.0f), float3(0.0f, 1.0f, 1.0f), coverage);
+	// A bright divider makes the four views unambiguous in screenshots.
+	if (panelPixel.x < 2 || panelPixel.y < 2)
+		return EncodeDiagnosticColor(float3(1.0f, 1.0f, 1.0f));
+
+	float2 panelUV = (float2(panelPixel) + 0.5f) /
+		max(float2(panelDimensions), float2(1.0f, 1.0f));
+	uint2 sourceRenderPixel = min(uint2(panelUV * float2(renderDimensions)), renderDimensions - 1);
+	uint2 sourceInputPixel = GetInputPixel(sourceRenderPixel);
+	float2 sourceRenderUV = (float2(sourceRenderPixel) + 0.5f) * SharedData::BufferDim.zw;
+
+	float rawWater = WaterMaskAvailable != 0 ?
+		WaterMaskTexture.SampleLevel(LinearSampler, GetInputUV(sourceRenderUV), 0).z : 0.0f;
+	float currentDepth = SkyMaskDepthTexture[sourceInputPixel];
+	float nativeDepth = NativeMainDepthAvailable != 0 ?
+		NativeMainDepthTexture[sourceInputPixel] : 1.0f;
+
+	float rawPositive = rawWater >= 1e-4f ? 1.0f : 0.0f;
+	float currentWritten = currentDepth < 1.0f ? 1.0f : 0.0f;
+	float nativeWritten = nativeDepth < 1.0f ? 1.0f : 0.0f;
+	float3 color = 0.0f.xxx;
+
+	if (!right && !bottom) {
+		// Top-left: kRAW_WATER.z. Positive values are cyan, negative values orange.
+		if (WaterMaskAvailable == 0)
+			color = float3(1.0f, 0.0f, 1.0f);
+		else if (rawWater >= 1e-4f)
+			color = lerp(float3(0.0f, 0.08f, 0.08f), float3(0.0f, 1.0f, 1.0f), saturate(rawWater * 4.0f));
+		else if (rawWater <= -1e-4f)
+			color = lerp(float3(0.08f, 0.03f, 0.0f), float3(1.0f, 0.35f, 0.0f), saturate(-rawWater * 4.0f));
+	} else if (right && !bottom) {
+		// Top-right: depth SRV currently exposed by the game/Community Shaders.
+		color = currentWritten != 0.0f ? float3(0.0f, 1.0f, 0.0f) : float3(0.0f, 0.0f, 0.08f);
+	} else if (!right && bottom) {
+		// Bottom-left: a fresh SRV made from the native kMAIN depth texture.
+		color = NativeMainDepthAvailable == 0 ? float3(1.0f, 0.0f, 1.0f) :
+			(nativeWritten != 0.0f ? float3(0.0f, 0.25f, 1.0f) : float3(0.08f, 0.0f, 0.0f));
+	} else {
+		// Bottom-right: bitwise overlap. R=raw water, G=exposed depth, B=native depth.
+		color = NativeMainDepthAvailable == 0 ? float3(1.0f, 0.0f, 1.0f) :
+			float3(rawPositive, currentWritten, nativeWritten);
+	}
+
+	return EncodeDiagnosticColor(color);
 }
 
 float GetSkyHighlightEligibility(float2 renderUV)
@@ -1138,7 +1193,7 @@ float4 SampleFarGatherColor(float2 uv, float mip)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	RWTexOut[DTid] = float4(GetCommunityShadersWaterMaskDiagnosticColor(DTid), 1.0f);
+	RWTexOut[DTid] = float4(GetTerrainDepthSourceDiagnosticColor(DTid), 1.0f);
 }
 
 [numthreads(8, 8, 1)] void CS_PostSmoothing1(uint2 DTid : SV_DispatchThreadID) {

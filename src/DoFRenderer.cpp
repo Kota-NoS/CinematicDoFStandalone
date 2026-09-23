@@ -42,7 +42,7 @@ namespace
 		std::uint32_t keepSkySharp;
 		Float2 targetGuardAxis;
 		std::uint32_t waterMaskAvailable;
-		std::uint32_t padding4;
+		std::uint32_t nativeMainDepthAvailable;
 	};
 	static_assert(sizeof(DoFConstants) == 144);
 
@@ -168,6 +168,31 @@ namespace
 		       depthDescription->SampleDesc.Count == 1;
 	}
 
+	DXGI_FORMAT GetDepthShaderResourceFormat(DXGI_FORMAT a_format)
+	{
+		switch (a_format) {
+		case DXGI_FORMAT_R16_TYPELESS:
+			return DXGI_FORMAT_R16_UNORM;
+		case DXGI_FORMAT_R24G8_TYPELESS:
+			return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+		case DXGI_FORMAT_R32_TYPELESS:
+			return DXGI_FORMAT_R32_FLOAT;
+		case DXGI_FORMAT_R32G8X24_TYPELESS:
+			return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+		default:
+			return DXGI_FORMAT_UNKNOWN;
+		}
+	}
+
+	ComPtr<ID3D11Resource> GetViewResource(ID3D11View* a_view)
+	{
+		ComPtr<ID3D11Resource> resource;
+		if (a_view) {
+			a_view->GetResource(resource.GetAddressOf());
+		}
+		return resource;
+	}
+
 	struct OutputMergerRestore
 	{
 		ID3D11DeviceContext* context;
@@ -284,6 +309,58 @@ bool CDoF::DoFRenderer::CreateConstantBuffer(
 	description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 	description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 	return !Failed(a_device->CreateBuffer(&description, nullptr, a_buffer.GetAddressOf()), "CreateBuffer");
+}
+
+bool CDoF::DoFRenderer::EnsureNativeMainDepthView(
+	ID3D11Device* a_device,
+	ID3D11Texture2D* a_texture)
+{
+	if (!a_device || !a_texture) {
+		return false;
+	}
+	if (resources_.nativeMainDepthResource.Get() == a_texture && resources_.nativeMainDepthSRV) {
+		return true;
+	}
+
+	D3D11_TEXTURE2D_DESC textureDescription{};
+	a_texture->GetDesc(&textureDescription);
+	const auto viewFormat = GetDepthShaderResourceFormat(textureDescription.Format);
+	if (viewFormat == DXGI_FORMAT_UNKNOWN || textureDescription.SampleDesc.Count != 1 ||
+		(textureDescription.BindFlags & D3D11_BIND_SHADER_RESOURCE) == 0) {
+		spdlog::warn(
+			"[Terrain Depth Source Diagnostic Test 24] Native main depth cannot be exposed (format={}, samples={}, bind=0x{:X})",
+			static_cast<std::uint32_t>(textureDescription.Format),
+			textureDescription.SampleDesc.Count,
+			textureDescription.BindFlags);
+		resources_.nativeMainDepthResource.Reset();
+		resources_.nativeMainDepthSRV.Reset();
+		return false;
+	}
+
+	D3D11_SHADER_RESOURCE_VIEW_DESC viewDescription{};
+	viewDescription.Format = viewFormat;
+	viewDescription.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	viewDescription.Texture2D.MostDetailedMip = 0;
+	viewDescription.Texture2D.MipLevels = 1;
+
+	ComPtr<ID3D11ShaderResourceView> view;
+	if (Failed(
+			a_device->CreateShaderResourceView(a_texture, &viewDescription, view.GetAddressOf()),
+			"CreateShaderResourceView(native main depth)")) {
+		resources_.nativeMainDepthResource.Reset();
+		resources_.nativeMainDepthSRV.Reset();
+		return false;
+	}
+
+	resources_.nativeMainDepthResource = a_texture;
+	resources_.nativeMainDepthSRV = std::move(view);
+	spdlog::info(
+		"[Terrain Depth Source Diagnostic Test 24] Created native main-depth view: {}x{}, texture format={}, view format={}",
+		textureDescription.Width,
+		textureDescription.Height,
+		static_cast<std::uint32_t>(textureDescription.Format),
+		static_cast<std::uint32_t>(viewFormat));
+	return true;
 }
 
 bool CDoF::DoFRenderer::UpdateConstantBuffer(
@@ -790,7 +867,8 @@ void CDoF::DoFRenderer::Apply()
 		context->OMGetRenderTargets(1, currentRTV.GetAddressOf(), currentDSV.GetAddressOf());
 
 		auto& depthStencils = renderer->GetDepthStencilData().depthStencils;
-		auto mainDepth = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV;
+		auto& mainDepthData = depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN];
+		auto mainDepth = mainDepthData.depthSRV;
 		auto depth = mainDepth;
 		if (!mainTarget.texture || !mainTarget.SRV || !mainDepth) {
 			return;
@@ -921,6 +999,24 @@ void CDoF::DoFRenderer::Apply()
 			spdlog::critical("Depth of field disabled because GPU resources could not be created");
 			return;
 		}
+		// EnsureResources can rebuild the entire resource bundle, so create the native
+		// depth SRV only after that rebuild has completed.  This keeps the diagnostic
+		// view alive on the first frame and after a resolution change.
+		const auto nativeMainDepthReady = EnsureNativeMainDepthView(device, mainDepthData.texture);
+		auto nativeMainDepth = nativeMainDepthReady ? resources_.nativeMainDepthSRV.Get() : nullptr;
+		const auto currentDepthResource = GetViewResource(mainDepth);
+		const auto currentDepthUsesNative = currentDepthResource.Get() == mainDepthData.texture;
+		if (!lastCurrentDepthUsesNative_ || *lastCurrentDepthUsesNative_ != currentDepthUsesNative) {
+			lastCurrentDepthUsesNative_ = currentDepthUsesNative;
+			const auto currentDescription = GetTextureDescription(mainDepth);
+			spdlog::info(
+				"[Terrain Depth Source Diagnostic Test 24] Exposed main depth now uses {} resource ({}x{}, format={}); native view={}",
+				currentDepthUsesNative ? "the native" : "a substituted",
+				currentDescription ? currentDescription->Width : 0U,
+				currentDescription ? currentDescription->Height : 0U,
+				currentDescription ? static_cast<std::uint32_t>(currentDescription->Format) : 0U,
+				nativeMainDepth ? "available" : "unavailable");
+		}
 		if (dialogueOnlyIdle) {
 			dialogueOnlyPrewarmed_ = true;
 			const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -978,6 +1074,7 @@ void CDoF::DoFRenderer::Apply()
 			mainTarget.SRV,
 			depth,
 			mainDepth,
+			nativeMainDepth,
 			rawWaterTarget.SRV,
 			effectiveSettings,
 			targetGuard,
@@ -1021,6 +1118,7 @@ void CDoF::DoFRenderer::Dispatch(
 	ID3D11ShaderResourceView* a_color,
 	ID3D11ShaderResourceView* a_depth,
 	ID3D11ShaderResourceView* a_skyMaskDepth,
+	ID3D11ShaderResourceView* a_nativeMainDepth,
 	ID3D11ShaderResourceView* a_waterMask,
 	const Settings& a_settings,
 	const TargetFocusSample* a_targetGuard,
@@ -1070,7 +1168,7 @@ void CDoF::DoFRenderer::Dispatch(
 		.targetGuardAxis = a_targetGuard ?
 			Float2{ a_targetGuard->guardAxis[0], a_targetGuard->guardAxis[1] } : Float2{},
 		.waterMaskAvailable = a_waterMask ? 1U : 0U,
-		.padding4 = 0U
+		.nativeMainDepthAvailable = a_nativeMainDepth ? 1U : 0U
 	};
 	const SharedConstants sharedData{
 		.cameraData = GetCameraData(),
@@ -1098,7 +1196,7 @@ void CDoF::DoFRenderer::Dispatch(
 	a_context->CSSetConstantBuffers(5, 1, &sharedCB);
 	a_context->CSSetSamplers(0, 1, &sampler);
 
-	std::array<ID3D11ShaderResourceView*, 13> srvs{};
+	std::array<ID3D11ShaderResourceView*, 14> srvs{};
 	std::array<ID3D11UnorderedAccessView*, 3> uavs{};
 	const auto resetViews = [&]() {
 		srvs.fill(nullptr);
@@ -1246,6 +1344,7 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[6] = resources_.nearBlurred.srv.Get();
 	srvs[11] = a_skyMaskDepth;
 	srvs[12] = a_waterMask;
+	srvs[13] = a_nativeMainDepth;
 	uavs[0] = resources_.postSmooth.uav.Get();
 	bindAndDispatch(shaders_.combiner.Get(), fullWidth, fullHeight);
 	resetViews();
