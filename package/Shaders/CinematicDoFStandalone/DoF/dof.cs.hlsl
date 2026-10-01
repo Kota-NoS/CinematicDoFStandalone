@@ -172,6 +172,8 @@ cbuffer SilhouetteCB : register(b2)
 {
 	float4 SilhouetteColor;
 	float4 SilhouetteBackgroundColor;
+	uint SilhouetteSmoothEdges;
+	uint3 SilhouettePadding;
 };
 
 #define SENSOR_SIZE 0.024f
@@ -382,6 +384,28 @@ float GetSkyClearDepthMask(uint2 renderPixel)
 	return rawDepth >= 1.0f ? 1.0f : 0.0f;
 }
 
+float GetAntialiasedSkyCoverage(uint2 renderPixel)
+{
+	// Silhouette mode writes its requested colours after Skyrim's image-space
+	// processing, so its binary depth edge receives no later antialiasing pass.
+	// Apply the previously validated 40% symmetric 5x5 binomial coverage only to
+	// this independent pass. Normal DoF and Keep Sky Sharp remain unchanged.
+	float centre = GetSkyClearDepthMask(renderPixel);
+	static const float kernel[5] = { 1.0f, 4.0f, 6.0f, 4.0f, 1.0f };
+	float coverage = 0.0f;
+	[unroll]
+	for (int y = -2; y <= 2; ++y) {
+		[unroll]
+		for (int x = -2; x <= 2; ++x) {
+			float weight = kernel[x + 2] * kernel[y + 2];
+			coverage += GetSkyClearDepthMask(
+				ClampFullResolutionPixel(int2(renderPixel) + int2(x, y))) * weight;
+		}
+	}
+	coverage *= (1.0f / 256.0f);
+	return lerp(centre, coverage, 0.40f);
+}
+
 float GetMoonFarDepthProtection(uint2 renderPixel)
 {
 	if (KeepSkySharp == 0)
@@ -401,7 +425,8 @@ float GetMoonFarDepthProtection(uint2 renderPixel)
 	if (IsOutsideFullResolution(DTid))
 		return;
 
-	float skyMask = GetSkyClearDepthMask(DTid);
+	float skyMask = SilhouetteSmoothEdges != 0 ?
+		GetAntialiasedSkyCoverage(DTid) : GetSkyClearDepthMask(DTid);
 	float3 color = lerp(SilhouetteColor.rgb, SilhouetteBackgroundColor.rgb, skyMask);
 	RWTexOut[DTid] = float4(color, 1.0f);
 }

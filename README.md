@@ -1,6 +1,6 @@
 # CinematicDoFStandalone 1.0.3
 
-> **Version 1.0.3:** transparent-material boundaries and HDR0 near-blur coverage are more stable, and `Keep Sky Sharp` now prevents sky-color leakage while softly compositing thin geometry at the sky boundary. For best transparency results, 64-bit HDR (`bUse64bitsHDRRenderTarget=1`) is recommended. Existing presets and INIs remain compatible.
+> **Version 1.0.3:** transparent-material boundaries and HDR0 near-blur coverage are more stable, `Keep Sky Sharp` now prevents sky-color leakage while softly compositing thin geometry at the sky boundary, and Silhouette Photo Mode includes its validated edge smoothing. For best transparency results, 64-bit HDR (`bUse64bitsHDRRenderTarget=1`) is recommended. Existing presets and INIs remain compatible.
 
 ## 日本語
 
@@ -65,7 +65,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 - DoFホットキー：「DoFを有効にする」の右側にあるホットキーボタンを押し、登録したいキーボードのキーを押します。Escで登録を中止、BackspaceまたはDeleteで登録を解除できます。
 - 会話限定DoF：「DoFを有効にする」をON、「会話外でもDoFを使用」をOFF、「会話中の被写体にピントを合わせる」をONにします。
 - 空の除外：「詳細設定を表示」の右側にある「空を鮮明に保つ」で切り替えます。互換用の基準初期値はOFFです。
-- シルエット撮影：DoFホットキー右側の白黒円アイコンから小窓を開き、前景色・背景色・専用ホットキーを設定します。初期色は完全な黒／白です。DoF本体がOFFでも使用できます。
+- シルエット撮影：DoFホットキー右側の白黒円アイコンから小窓を開き、輪郭スムージング、前景色・背景色、専用ホットキーを設定します。「シルエット輪郭を滑らかにする」は初期状態でONで、OFFにすると従来のくっきりした二値輪郭になります。初期色は完全な黒／白です。DoF本体がOFFでも使用できます。
 
 ホットキーの割り当てはINIへ保存され、プリセットには含まれません。ホットキーで切り替えたDoF／シルエットのON/OFF状態は自動保存されません。Skyrim本体や他MODと同じキーを割り当てると、両方の操作が実行される場合があります。
 
@@ -95,7 +95,7 @@ SKSE Menu Frameworkを導入している場合、ゲーム中にF1を押し、`C
 
 - 1人称で通常プレイする場合は、詳細設定の「一人称の手前ぼかし」をOFFにすると武器や手元が鮮明になります。
 - 「空を鮮明に保つ」は未描画の深度から空を判定し、同じスイッチで遠端深度の月も保護します。空色を山・建造物・樹木へ運ばず、空との境界だけを局所被覆率で滑らかに合成します。既存INIや既存プリセットにこの設定がない場合はOFFとして読み込みます。
-- シルエット撮影モードは現在のメイン深度だけで前景／背景を分類します。水面、月、半透明物、パーティクルは、そのフレームでメイン深度へ書き込まれたかどうかに従います。
+- シルエット撮影モードは現在のメイン深度だけで前景／背景を分類します。水面、月、半透明物、パーティクルは、そのフレームでメイン深度へ書き込まれたかどうかに従います。輪郭スムージングはシルエット境界だけに適用され、通常DoFには影響しません。
 - HDR0（`bUse64bitsHDRRenderTarget=0`）では、ベールなどの半透明素材越しに見える背景が十分にぼけず、鮮明に残る場合があります。HDR0のメインカラー形式にはアルファがなく、最終フレームで同じ画素へ合成済みの手前素材と背景を別々の深度で再処理できないためです。最良の透過表現には64-bit HDRを使用してください。
 - 「絞り形状ボケ」は初期状態でOFFです。ONにすると、強くピンぼけした明るい点が設定した絞り形状に近づきます。「明るいボケの強調」は、ぼかし平均で薄まる前の明点へ近づける量を調整します。元映像の明点を超える無制限な発光を追加する機能ではありません。
 - 非常に大きなボケを低い「ぼかし品質」で描画すると、サンプル密度不足によりボケが輪や点へ分裂して見える場合があります。これは既知の制限です。必要に応じて品質を上げるか、最大ぼかしを弱めてください。

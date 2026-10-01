@@ -64,6 +64,7 @@ namespace CDoF
 	struct SilhouetteSettings
 	{
 		bool enabled{ false };
+		bool smoothEdges{ true };
 		std::array<float, 3> foregroundColor{ 0.0F, 0.0F, 0.0F };
 		std::array<float, 3> backgroundColor{ 1.0F, 1.0F, 1.0F };
 	};

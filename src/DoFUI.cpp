@@ -1155,6 +1155,12 @@ namespace
 			&silhouetteSettings.enabled,
 			"Renders an independent two-color depth silhouette. It works even when the DoF master switch is off and leaves all DoF and preset values unchanged.",
 			"現在のメイン深度を使い、独立した2色のシルエットを描画します。DoF本体がOFFでも使用でき、DoF設定やプリセットは変更しません。");
+		changed |= CheckboxWithHelp(
+			"Smooth Silhouette Edges",
+			"シルエット輪郭を滑らかにする",
+			&silhouetteSettings.smoothEdges,
+			"Softens only the binary silhouette boundary. Turn this off for the original crisp, unblurred edge.",
+			"二値シルエットの境界だけを滑らかにします。従来のくっきりした、ぼかし無しの輪郭に戻す場合はOFFにします。");
 		changed |= ColorEditWithHelp(
 			"Silhouette Color",
 			"シルエット色",
@@ -1200,8 +1206,8 @@ namespace
 				}
 			}
 			MenuFramework::ItemTooltip(Localized(
-				"Saves the current silhouette switch and colors for the next launch. Hotkey assignments are saved immediately when changed.",
-				"現在のシルエットON/OFFと2色を次回起動用に保存します。ホットキーは変更時に自動保存されます。"));
+				"Saves the current silhouette switch, edge smoothing, and colors for the next launch. Hotkey assignments are saved immediately when changed.",
+				"現在のシルエットON/OFF、輪郭の滑らかさ、2色を次回起動用に保存します。ホットキーは変更時に自動保存されます。"));
 			MenuFramework::Text(
 				interfaceSettings.japanese ? statusTextJapanese.c_str() : statusTextEnglish.c_str());
 		}

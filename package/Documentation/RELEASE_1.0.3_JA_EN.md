@@ -12,6 +12,7 @@
 - 「空を鮮明に保つ」では、未描画の空と遠端深度の月を保護しながら、空色が粗い遠景色階層から山・建造物・樹木へ混入する経路を遮断します。
 - 空と実ジオメトリが接する境界では、周囲3x3の深度から局所被覆率を求めます。空の内部と月は鮮明なまま、空を背景にした枝葉だけが不自然に鮮明になる差を和らげます。
 - 広い保護帯や診断用マスクは使用せず、ぼけ半径に応じて月・山・建造物の周囲が発光状に拡張する現象を防ぎます。
+- シルエット撮影モードへ、検証済みの40%・5x5対称境界スムージングを統合しました。小窓のチェックで従来のくっきりした輪郭へ戻せます。通常DoFには適用されません。
 
 ### 実ゲームで確認済み
 
@@ -37,6 +38,7 @@ Version 1.0.3 stabilizes transparent-material boundaries and HDR0 near-blur cove
 - `Keep Sky Sharp` protects unwritten sky and far-depth moons while preventing bright sky already mixed into coarse far-color levels from contaminating mountains, buildings, and foliage.
 - At sky/geometry boundaries, local coverage is estimated from a 3x3 depth neighborhood. Interior sky and moons remain sharp while thin foliage no longer stays unnaturally sharp only against the sky.
 - No broad protection band or diagnostic mask is retained, avoiding blur-radius-sized glow around moons, mountains, and buildings.
+- Silhouette Photo Mode now integrates the validated 40% symmetric 5x5 edge smoothing. A checkbox in its window restores the original crisp edge. It does not run during normal DoF.
 
 ### Validated in game
 

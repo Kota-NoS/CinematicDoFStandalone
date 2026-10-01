@@ -58,8 +58,10 @@ namespace
 	{
 		std::array<float, 4> foregroundColor;
 		std::array<float, 4> backgroundColor;
+		std::uint32_t smoothEdges;
+		std::array<std::uint32_t, 3> padding;
 	};
-	static_assert(sizeof(SilhouetteConstants) == 32);
+	static_assert(sizeof(SilhouetteConstants) == 48);
 
 	struct RenderArea
 	{
@@ -1561,7 +1563,9 @@ bool CDoF::DoFRenderer::DispatchSilhouette(
 			std::clamp(a_settings.backgroundColor[0], 0.0F, 1.0F),
 			std::clamp(a_settings.backgroundColor[1], 0.0F, 1.0F),
 			std::clamp(a_settings.backgroundColor[2], 0.0F, 1.0F),
-			1.0F }
+			1.0F },
+		.smoothEdges = a_settings.smoothEdges ? 1U : 0U,
+		.padding = {}
 	};
 	const SharedConstants sharedData{
 		.cameraData = GetCameraData(),

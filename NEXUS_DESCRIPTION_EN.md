@@ -2,7 +2,7 @@
 
 CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a standalone effect. It is based on Jiaye's Community Shaders AIO work, but Community Shaders itself is not required.
 
-Version 1.0.3 stabilizes transparent-material boundaries, HDR0 near-blur coverage, and boundary composition for sky, moons, mountains, buildings, and foliage. `Keep Sky Sharp` prevents sky-color leakage while allowing thin geometry against the sky to blur naturally. 64-bit HDR is recommended for the best transparency rendering, and existing preset and INI compatibility is retained.
+Version 1.0.3 stabilizes transparent-material boundaries, HDR0 near-blur coverage, and boundary composition for sky, moons, mountains, buildings, and foliage. `Keep Sky Sharp` prevents sky-color leakage while allowing thin geometry against the sky to blur naturally, and Silhouette Photo Mode now includes its validated edge smoothing. 64-bit HDR is recommended for the best transparency rendering, and existing preset and INI compatibility is retained.
 
 ## Features
 
@@ -50,7 +50,7 @@ With SKSE Menu Framework installed, press F1 in game and open `Cinematic DoF Sta
 - A practical lens workflow is to set broad depth separation with focal length, refine the in-focus range with the F-number, then set final strength with the near/far maximum blur controls.
 - DoF Hotkey: press the hotkey button beside `Enable DoF`, then press the keyboard key you want to assign. Esc cancels assignment; Backspace or Delete clears it.
 - Sky and moon exclusion: toggle `Keep Sky Sharp` to the right of `Show Advanced Settings`. Moon protection deliberately follows this same switch. Its compatibility default is off, including existing INIs and presets that do not contain the setting.
-- Silhouette Photo Mode: open its compact window with the black/white circle icon beside the DoF hotkey, then choose foreground/background colours and an optional hotkey. Its default palette is pure black and white. It also works while DoF itself is off.
+- Silhouette Photo Mode: open its compact window with the black/white circle icon beside the DoF hotkey, then choose edge smoothing, foreground/background colours, and an optional hotkey. Edge smoothing defaults to on; turn it off for the original crisp binary edge. Its default palette is pure black and white. It also works while DoF itself is off.
 
 Hotkey assignments are saved to the INI and are not part of a preset. Toggling DoF or Silhouette Mode with a hotkey does not automatically save the enabled state. If the same key is used by Skyrim or another mod, both actions may run.
 
