@@ -6,6 +6,7 @@ namespace
 	constexpr auto kSection = L"DepthOfField";
 	constexpr auto kTargetFocusSection = L"TargetFocus";
 	constexpr auto kModeSection = L"Modes";
+	constexpr auto kSilhouetteSection = L"Silhouette";
 	constexpr auto kInterfaceSection = L"Interface";
 	constexpr auto kHotkeySection = L"Hotkeys";
 
@@ -116,7 +117,10 @@ namespace
 		a_defaults.focusY = Clamp(ReadFloat(a_section, L"FocusY", a_defaults.focusY), 0.0F, 1.0F);
 		a_defaults.autoFocusOffsetMeters = Clamp(
 			ReadFloat(a_section, L"AutoFocusOffsetMeters", a_defaults.autoFocusOffsetMeters), -10.0F, 10.0F);
-		a_defaults.manualFocusMeters = Clamp(ReadFloat(a_section, L"ManualFocusMeters", a_defaults.manualFocusMeters), 0.1F, 150.0F);
+		a_defaults.manualFocusMeters = Clamp(
+			ReadFloat(a_section, L"ManualFocusMeters", a_defaults.manualFocusMeters),
+			CDoF::kManualFocusMinMeters,
+			CDoF::kManualFocusMaxMeters);
 		a_defaults.focalLength = Clamp(ReadFloat(a_section, L"FocalLength", a_defaults.focalLength), 1.0F, 300.0F);
 		a_defaults.fNumber = Clamp(ReadFloat(a_section, L"FNumber", a_defaults.fNumber), 1.0F, 22.0F);
 		a_defaults.nearFocusRangeMeters = Clamp(
@@ -323,6 +327,48 @@ bool CDoF::SaveModeSettings(const ModeSettings& a_settings)
 	return success;
 }
 
+CDoF::SilhouetteSettings CDoF::LoadSilhouetteSettings()
+{
+	SilhouetteSettings result{};
+	result.enabled = ReadBool(kSilhouetteSection, L"Enabled", result.enabled);
+	result.smoothEdges = ReadBool(kSilhouetteSection, L"SmoothEdges", result.smoothEdges);
+	result.foregroundColor = {
+		Clamp(ReadFloat(kSilhouetteSection, L"ForegroundR", result.foregroundColor[0]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kSilhouetteSection, L"ForegroundG", result.foregroundColor[1]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kSilhouetteSection, L"ForegroundB", result.foregroundColor[2]), 0.0F, 1.0F)
+	};
+	result.backgroundColor = {
+		Clamp(ReadFloat(kSilhouetteSection, L"BackgroundR", result.backgroundColor[0]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kSilhouetteSection, L"BackgroundG", result.backgroundColor[1]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kSilhouetteSection, L"BackgroundB", result.backgroundColor[2]), 0.0F, 1.0F)
+	};
+	spdlog::info(
+		"Silhouette settings loaded: enabled={}, smoothEdges={}, foreground=({:.3f}, {:.3f}, {:.3f}), background=({:.3f}, {:.3f}, {:.3f})",
+		result.enabled,
+		result.smoothEdges,
+		result.foregroundColor[0], result.foregroundColor[1], result.foregroundColor[2],
+		result.backgroundColor[0], result.backgroundColor[1], result.backgroundColor[2]);
+	return result;
+}
+
+bool CDoF::SaveSilhouetteSettings(const SilhouetteSettings& a_settings)
+{
+	bool success = true;
+	success = WriteBool(kSilhouetteSection, L"Enabled", a_settings.enabled) && success;
+	success = WriteBool(kSilhouetteSection, L"SmoothEdges", a_settings.smoothEdges) && success;
+	success = WriteFloat(kSilhouetteSection, L"ForegroundR", std::clamp(a_settings.foregroundColor[0], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"ForegroundG", std::clamp(a_settings.foregroundColor[1], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"ForegroundB", std::clamp(a_settings.foregroundColor[2], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"BackgroundR", std::clamp(a_settings.backgroundColor[0], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"BackgroundG", std::clamp(a_settings.backgroundColor[1], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kSilhouetteSection, L"BackgroundB", std::clamp(a_settings.backgroundColor[2], 0.0F, 1.0F)) && success;
+	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
+	if (success) {
+		spdlog::info("Silhouette settings saved");
+	}
+	return success;
+}
+
 CDoF::TargetFocusSettings CDoF::LoadPresetTargetFocusSettings(
 	const wchar_t* a_section,
 	TargetFocusSettings a_defaults)
@@ -359,12 +405,20 @@ CDoF::HotkeySettings CDoF::LoadHotkeySettings()
 {
 	HotkeySettings result{};
 	result.toggleDoFKey = std::min(ReadUInt(kHotkeySection, L"ToggleDoF", result.toggleDoFKey), 0xFFu);
+	result.toggleSilhouetteKey = std::min(
+		ReadUInt(kHotkeySection, L"ToggleSilhouette", result.toggleSilhouetteKey),
+		0xFFu);
 	return result;
 }
 
 bool CDoF::SaveHotkeySettings(const HotkeySettings& a_settings)
 {
-	const auto success = WriteUInt(kHotkeySection, L"ToggleDoF", std::min(a_settings.toggleDoFKey, 0xFFu));
+	bool success = true;
+	success = WriteUInt(kHotkeySection, L"ToggleDoF", std::min(a_settings.toggleDoFKey, 0xFFu)) && success;
+	success = WriteUInt(
+		kHotkeySection,
+		L"ToggleSilhouette",
+		std::min(a_settings.toggleSilhouetteKey, 0xFFu)) && success;
 	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
 	return success;
 }

@@ -99,6 +99,13 @@ bool CDoF::MenuFramework::Checkbox(const char* a_label, bool* a_value)
 	return function ? function(a_label, a_value) : false;
 }
 
+bool CDoF::MenuFramework::ColorEdit3(const char* a_label, float* a_color)
+{
+	using Function = bool (*)(const char*, float*, int);
+	const auto function = Resolve<Function>("igColorEdit3");
+	return function ? function(a_label, a_color, 0) : false;
+}
+
 bool CDoF::MenuFramework::SliderFloat(
 	const char* a_label,
 	float* a_value,
@@ -116,6 +123,105 @@ bool CDoF::MenuFramework::Button(const char* a_label)
 	using Function = bool (*)(const char*, ImVec2);
 	const auto function = Resolve<Function>("igButton");
 	return function ? function(a_label, ImVec2{}) : false;
+}
+
+bool CDoF::MenuFramework::SilhouetteIconButton(const char* a_id, bool a_active)
+{
+	using ButtonFunction = bool (*)(const char*, ImVec2);
+	using GetFrameHeightFunction = float (*)();
+	using GetItemRectFunction = void (*)(ImVec2*);
+	using GetDrawListFunction = void* (*)();
+	using AddCircleFilledFunction = void (*)(void*, ImVec2, float, std::uint32_t, int);
+	using AddConvexPolyFilledFunction = void (*)(void*, const ImVec2*, int, std::uint32_t);
+	using AddRectFilledFunction = void (*)(void*, ImVec2, ImVec2, std::uint32_t, float, int);
+	using AddTriangleFilledFunction = void (*)(void*, ImVec2, ImVec2, ImVec2, std::uint32_t);
+
+	const auto button = Resolve<ButtonFunction>("igButton");
+	if (!button) {
+		return false;
+	}
+	const auto getItemMin = Resolve<GetItemRectFunction>("igGetItemRectMin");
+	const auto getItemMax = Resolve<GetItemRectFunction>("igGetItemRectMax");
+	const auto getFrameHeight = Resolve<GetFrameHeightFunction>("igGetFrameHeight");
+	const auto getDrawList = Resolve<GetDrawListFunction>("igGetWindowDrawList");
+	const auto addCircleFilled = Resolve<AddCircleFilledFunction>("ImDrawList_AddCircleFilled");
+	const auto addConvexPolyFilled = Resolve<AddConvexPolyFilledFunction>("ImDrawList_AddConvexPolyFilled");
+	const auto addRectFilled = Resolve<AddRectFilledFunction>("ImDrawList_AddRectFilled");
+	const auto addTriangleFilled = Resolve<AddTriangleFilledFunction>("ImDrawList_AddTriangleFilled");
+	const auto canDraw = getItemMin && getItemMax && getDrawList && addCircleFilled && addConvexPolyFilled &&
+	                     addRectFilled && addTriangleFilled;
+	const auto fallbackLabel = std::string("S") + a_id;
+
+	// Keep the clickable frame in ImGui so hover, active, navigation, and input
+	// behavior match every other Menu Framework button. The visible contrast
+	// mark is drawn over an ID-only label and therefore does not depend on fonts.
+	// An ASCII S remains as a compatibility fallback for older frameworks.
+	const auto buttonSide = getFrameHeight ? std::max(getFrameHeight(), 1.0F) : 28.0F;
+	const auto pressed = button(canDraw ? a_id : fallbackLabel.c_str(), ImVec2{ buttonSide, buttonSide });
+	if (!canDraw) {
+		return pressed;
+	}
+
+	ImVec2 minimum{};
+	ImVec2 maximum{};
+	getItemMin(&minimum);
+	getItemMax(&maximum);
+	const auto width = std::max(maximum.x - minimum.x, 1.0F);
+	const auto height = std::max(maximum.y - minimum.y, 1.0F);
+	const auto side = std::min(width, height);
+	const auto left = minimum.x + (width - side) * 0.5F;
+	const auto top = minimum.y + (height - side) * 0.5F;
+	const auto outerInset = std::max(1.0F, side * 0.055F);
+	const auto activeBorder = a_active ? std::max(1.5F, side * 0.075F) : 0.0F;
+	const ImVec2 tileMinimum{ left + outerInset, top + outerInset };
+	const ImVec2 tileMaximum{ left + side - outerInset, top + side - outerInset };
+	const ImVec2 whiteMinimum{ tileMinimum.x + activeBorder, tileMinimum.y + activeBorder };
+	const ImVec2 whiteMaximum{ tileMaximum.x - activeBorder, tileMaximum.y - activeBorder };
+	const auto tileWidth = std::max(whiteMaximum.x - whiteMinimum.x, 1.0F);
+	const auto tileHeight = std::max(whiteMaximum.y - whiteMinimum.y, 1.0F);
+	const auto centerX = (whiteMinimum.x + whiteMaximum.x) * 0.5F;
+	const auto black = 0xFF000000U;
+	const auto white = 0xFFFFFFFFU;
+	const auto orange = 0xFF1F9EFFU;  // ABGR
+	const auto circleRadius = std::max(2.5F, std::min(tileWidth, tileHeight) * 0.34F);
+	const ImVec2 circleCenter{ centerX, (whiteMinimum.y + whiteMaximum.y) * 0.5F };
+
+	if (auto* drawList = getDrawList()) {
+		if (a_active) {
+			addRectFilled(drawList, tileMinimum, tileMaximum, orange, 2.0F, 0);
+		}
+		addRectFilled(drawList, whiteMinimum, whiteMaximum, white, 1.5F, 0);
+		addTriangleFilled(
+			drawList,
+			whiteMinimum,
+			ImVec2{ whiteMaximum.x, whiteMinimum.y },
+			ImVec2{ whiteMinimum.x, whiteMaximum.y },
+			black);
+		addCircleFilled(drawList, circleCenter, circleRadius, black, 24);
+
+		// Repaint the upper-left half as one convex polygon. Drawing a triangle
+		// fan produces anti-aliased internal seams and a bright center pinhole.
+		constexpr auto pi = 3.14159265358979323846F;
+		constexpr auto arcSegments = 16;
+		// Screen-space Y grows downward, so 135..315 degrees is the
+		// upper-left semicircle bounded by the rising diagonal.
+		constexpr auto startAngle = pi * 0.75F;
+		std::array<ImVec2, arcSegments + 1> upperLeftHalf{};
+		for (auto point = 0; point <= arcSegments; ++point) {
+			const auto angle = startAngle + pi * static_cast<float>(point) / static_cast<float>(arcSegments);
+			upperLeftHalf[point] = ImVec2{
+				circleCenter.x + std::cos(angle) * circleRadius,
+				circleCenter.y + std::sin(angle) * circleRadius
+			};
+		}
+		addConvexPolyFilled(drawList, upperLeftHalf.data(), static_cast<int>(upperLeftHalf.size()), white);
+		if (a_active) {
+			const auto lampRadius = std::max(1.4F, tileWidth * 0.085F);
+			const ImVec2 lampCenter{ whiteMaximum.x - lampRadius * 1.35F, whiteMinimum.y + lampRadius * 1.35F };
+			addCircleFilled(drawList, lampCenter, lampRadius, orange, 12);
+		}
+	}
+	return pressed;
 }
 
 void CDoF::MenuFramework::SameLine()

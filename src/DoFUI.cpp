@@ -12,13 +12,21 @@ namespace
 	Settings uiSettings{};
 	TargetFocusSettings targetFocusSettings{};
 	ModeSettings modeSettings{};
+	SilhouetteSettings silhouetteSettings{};
 	InterfaceSettings interfaceSettings{};
 	HotkeySettings hotkeySettings{};
 	std::mutex uiMutex;
 	bool initialized{};
 	bool registered{};
 	bool showAdvanced{};
-	bool waitingForHotkey{};
+	enum class HotkeyCaptureTarget
+	{
+		kNone,
+		kDoF,
+		kSilhouette
+	};
+	HotkeyCaptureTarget hotkeyCaptureTarget{ HotkeyCaptureTarget::kNone };
+	MenuFramework::WindowInterface* silhouetteWindow{};
 	bool japaneseFontEnabled{};
 	std::optional<std::size_t> editingPresetIndex{};
 	std::optional<std::size_t> pendingPresetResetIndex{};
@@ -65,6 +73,24 @@ namespace
 		return changed;
 	}
 
+	bool ColorEditWithHelp(
+		const char* a_englishLabel,
+		const char* a_japaneseLabel,
+		std::array<float, 3>& a_color,
+		const char* a_englishHelp,
+		const char* a_japaneseHelp)
+	{
+		const auto label = std::string(Localized(a_englishLabel, a_japaneseLabel));
+		const auto changed = MenuFramework::ColorEdit3(label.c_str(), a_color.data());
+		MenuFramework::ItemTooltip(Localized(a_englishHelp, a_japaneseHelp));
+		if (changed) {
+			for (auto& component : a_color) {
+				component = std::clamp(component, 0.0F, 1.0F);
+			}
+		}
+		return changed;
+	}
+
 	bool ApertureBladeSlider(Settings& a_settings)
 	{
 		float bladeCount = static_cast<float>(a_settings.apertureBlades);
@@ -96,6 +122,30 @@ namespace
 		if (changed) {
 			sliderPosition = std::clamp(sliderPosition, 0.0F, 1.0F);
 			*a_valueMeters = a_maxMeters * sliderPosition * sliderPosition;
+		}
+		MenuFramework::ItemTooltip(Localized(a_englishHelp, a_japaneseHelp));
+		return changed;
+	}
+
+	bool LogDistanceSliderWithHelp(
+		const char* a_englishLabel,
+		const char* a_japaneseLabel,
+		float* a_valueMeters,
+		float a_minMeters,
+		float a_maxMeters,
+		const char* a_englishHelp,
+		const char* a_japaneseHelp)
+	{
+		const auto clampedMeters = std::clamp(*a_valueMeters, a_minMeters, a_maxMeters);
+		const auto logRange = std::log(a_maxMeters / a_minMeters);
+		float sliderPosition = std::log(clampedMeters / a_minMeters) / logRange;
+		const auto valueText = std::format("{:.2f} m", clampedMeters);
+		const auto label = std::string(Localized(a_englishLabel, a_japaneseLabel));
+		const auto changed = MenuFramework::SliderFloat(
+			label.c_str(), &sliderPosition, 0.0F, 1.0F, valueText.c_str());
+		if (changed) {
+			sliderPosition = std::clamp(sliderPosition, 0.0F, 1.0F);
+			*a_valueMeters = a_minMeters * std::exp(logRange * sliderPosition);
 		}
 		MenuFramework::ItemTooltip(Localized(a_englishHelp, a_japaneseHelp));
 		return changed;
@@ -187,6 +237,7 @@ namespace
 	{
 		DoFRenderer::GetSingleton().SetSettings(uiSettings);
 		DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
+		DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
 		ApplyTargetFocus();
 		SetStatus("Live values changed (not saved).", "現在値を変更しました（INI未保存）。");
 	}
@@ -215,22 +266,41 @@ namespace
 		return std::format("Key 0x{:02X}", a_keyCode);
 	}
 
-	void RenderHotkeyControl()
+	void BeginHotkeyCapture(HotkeyCaptureTarget a_target)
+	{
+		hotkeyCaptureTarget = a_target;
+		SetStatus(
+			"Press a keyboard key to assign it. Esc cancels; Backspace or Delete clears it.",
+			"登録するキーボードのキーを押してください。Escで中止、BackspaceまたはDeleteで解除します。");
+	}
+
+	void RenderDoFHotkeyControl()
 	{
 		MenuFramework::SameLine();
-		const auto label = waitingForHotkey ?
+		const auto label = hotkeyCaptureTarget == HotkeyCaptureTarget::kDoF ?
 			std::string(Localized("Press a key...", "キーを押してください...")) + "##ToggleDoFHotkey" :
 			std::string(Localized("Hotkey: ", "ホットキー：")) + HotkeyName(hotkeySettings.toggleDoFKey) +
 				"##ToggleDoFHotkey";
 		if (MenuFramework::Button(label.c_str())) {
-			waitingForHotkey = true;
-			SetStatus(
-				"Press a keyboard key to assign it. Esc cancels; Backspace or Delete clears it.",
-				"登録するキーボードのキーを押してください。Escで中止、BackspaceまたはDeleteで解除します。");
+			BeginHotkeyCapture(HotkeyCaptureTarget::kDoF);
 		}
 		MenuFramework::ItemTooltip(Localized(
 			"Assigns a keyboard hotkey that toggles DoF without saving the enabled state. Esc cancels assignment; Backspace or Delete clears it. Avoid keys used by Skyrim or other mods because both actions may run.",
 			"DoFのON/OFFを切り替えるキーボードのホットキーです。切替状態は自動保存しません。Escで登録を中止し、BackspaceまたはDeleteで解除します。Skyrimや他MODと同じキーでは両方の操作が実行される場合があります。"));
+	}
+
+	void RenderSilhouetteHotkeyControl()
+	{
+		const auto label = hotkeyCaptureTarget == HotkeyCaptureTarget::kSilhouette ?
+			std::string(Localized("Press a key...", "キーを押してください...")) + "##ToggleSilhouetteHotkey" :
+			std::string(Localized("Hotkey: ", "ホットキー：")) +
+				HotkeyName(hotkeySettings.toggleSilhouetteKey) + "##ToggleSilhouetteHotkey";
+		if (MenuFramework::Button(label.c_str())) {
+			BeginHotkeyCapture(HotkeyCaptureTarget::kSilhouette);
+		}
+		MenuFramework::ItemTooltip(Localized(
+			"Assigns a keyboard hotkey that toggles silhouette mode even while this window is closed. The enabled state is not saved automatically. Esc cancels assignment; Backspace or Delete clears it.",
+			"この小窓を閉じていてもシルエット撮影モードをON/OFFできるキーボードのホットキーです。切替状態は自動保存しません。Escで登録を中止し、BackspaceまたはDeleteで解除します。"));
 	}
 
 	Settings GameplayPreset()
@@ -828,6 +898,7 @@ namespace
 		if (MenuFramework::Button(Localized("Save Startup Settings", "次回起動設定を保存"))) {
 			if (SaveSettings(uiSettings) && SaveTargetFocusSettings(targetFocusSettings) &&
 				SaveModeSettings(modeSettings) &&
+				SaveSilhouetteSettings(silhouetteSettings) &&
 				SaveInterfaceSettings(interfaceSettings)) {
 				SetStatus("Saved startup settings to CinematicDoFStandalone.ini.", "次回起動設定をCinematicDoFStandalone.iniへ保存しました。");
 			} else {
@@ -835,20 +906,22 @@ namespace
 			}
 		}
 		MenuFramework::ItemTooltip(Localized(
-			"Saves the master switch, normal-gameplay mode, DoF, dialogue-focus, target-tracking, and interface-language values currently applied on screen for the next launch. It does not overwrite any preset slot.",
-			"現在映像へ適用中の主スイッチ・会話外DoF・DoF・会話フォーカス・対象追従設定とUI言語を、次回起動時の設定として保存します。プリセット枠は上書きしません。"));
+			"Saves the master switch, normal-gameplay mode, DoF, silhouette, dialogue-focus, target-tracking, and interface-language values currently applied on screen for the next launch. It does not overwrite any preset slot.",
+			"現在映像へ適用中の主スイッチ・会話外DoF・DoF・シルエット・会話フォーカス・対象追従設定とUI言語を、次回起動時の設定として保存します。プリセット枠は上書きしません。"));
 		MenuFramework::SameLine();
 		if (MenuFramework::Button(Localized("Reload INI", "INIを再読み込み"))) {
 			uiSettings = LoadSettings();
 			targetFocusSettings = LoadTargetFocusSettings();
 			modeSettings = LoadModeSettings();
+			silhouetteSettings = LoadSilhouetteSettings();
 			interfaceSettings = LoadInterfaceSettings();
 			hotkeySettings = LoadHotkeySettings();
-			waitingForHotkey = false;
+			hotkeyCaptureTarget = HotkeyCaptureTarget::kNone;
 			LoadPresets();
 			editingPresetIndex = FindMatchingPreset();
 			DoFRenderer::GetSingleton().SetSettings(uiSettings);
 			DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
+			DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
 			ApplyTargetFocus();
 			SetStatus(
 				"Reloaded current settings and preset slots from INI.",
@@ -892,15 +965,14 @@ namespace
 				"Offsets the sampled screen depth. Negative moves focus toward the camera; positive moves it farther away.",
 				"画面から取得した距離を補正します。マイナスでカメラ側、プラスで取得地点より奥へピント面を移動します。");
 		} else if (!targetFocusSettings.consoleEnabled) {
-			changed |= SliderWithHelp(
+			changed |= LogDistanceSliderWithHelp(
 				"Focus Distance",
 				"ピント距離",
 				&uiSettings.manualFocusMeters,
-				0.1F,
-				150.0F,
-				"%.2f m",
-				"Fixed distance from the active camera to the focus plane.",
-				"現在のカメラからピント面までの固定距離です。");
+				kManualFocusMinMeters,
+				kManualFocusMaxMeters,
+				"Fixed distance from the active camera to the focus plane. The logarithmic slider keeps short-distance control precise while extending to 2000 m for distant scenery.",
+				"現在のカメラからピント面までの固定距離です。対数スライダーで近距離の細かな操作を保ちながら、遠景用に2000mまで指定できます。");
 		}
 		changed |= SliderWithHelp(
 			"Transition Speed",
@@ -967,8 +1039,8 @@ namespace
 			"Keep Sky Sharp",
 			"空を鮮明に保つ",
 			&uiSettings.keepSkySharp,
-			"Excludes clear-depth sky pixels from DoF while preserving a soft boundary around geometry. Moons and other sky objects that write depth can still be blurred.",
-			"深度が未描画の空をDoFから除外し、地形との境界は滑らかに保ちます。月など深度を書き込む天体はぼける場合があります。");
+			"Excludes clear-depth sky pixels and far-depth moon pixels from DoF while preserving a soft boundary around geometry. Moon protection follows this same switch.",
+			"深度が未描画の空と遠端深度の月をDoFから除外し、地形との境界は滑らかに保ちます。月の保護もこのスイッチに連動します。");
 		if (showAdvanced) {
 			MenuFramework::SeparatorText(Localized("Bokeh and Quality", "画質・ボケの詳細"));
 			changed |= CheckboxWithHelp(
@@ -1049,7 +1121,21 @@ namespace
 			&uiSettings.enabled,
 			"Master switch for all DoF rendering, including dialogue. The hotkey controls this same switch.",
 			"会話中を含むすべてのDoF描画の主スイッチです。ホットキーも同じスイッチを切り替えます。");
-		RenderHotkeyControl();
+		RenderDoFHotkeyControl();
+		MenuFramework::SameLine();
+		if (MenuFramework::SilhouetteIconButton("##OpenSilhouettePhotoMode", silhouetteSettings.enabled)) {
+			if (silhouetteWindow) {
+				silhouetteWindow->isOpen = !silhouetteWindow->isOpen;
+			}
+		}
+		const auto silhouetteWindowOpen = silhouetteWindow && silhouetteWindow->isOpen;
+		MenuFramework::ItemTooltip(Localized(
+			silhouetteWindowOpen ?
+				"Close Silhouette Photo Mode settings." :
+				"Open Silhouette Photo Mode settings.",
+			silhouetteWindowOpen ?
+				"シルエット撮影モードの小窓を閉じます。" :
+				"シルエット撮影モードの小窓を開きます。"));
 		changed |= CheckboxWithHelp(
 			"Use DoF outside dialogue",
 			"会話外でもDoFを使用",
@@ -1060,11 +1146,88 @@ namespace
 		return changed;
 	}
 
+	bool RenderSilhouetteControls()
+	{
+		bool changed{};
+		changed |= CheckboxWithHelp(
+			"Enable Silhouette Mode",
+			"シルエット撮影モードを有効にする",
+			&silhouetteSettings.enabled,
+			"Renders an independent two-color depth silhouette. It works even when the DoF master switch is off and leaves all DoF and preset values unchanged.",
+			"現在のメイン深度を使い、独立した2色のシルエットを描画します。DoF本体がOFFでも使用でき、DoF設定やプリセットは変更しません。");
+		changed |= CheckboxWithHelp(
+			"Smooth Silhouette Edges",
+			"シルエット輪郭を滑らかにする",
+			&silhouetteSettings.smoothEdges,
+			"Softens only the binary silhouette boundary. Turn this off for the original crisp, unblurred edge.",
+			"二値シルエットの境界だけを滑らかにします。従来のくっきりした、ぼかし無しの輪郭に戻す場合はOFFにします。");
+		changed |= ColorEditWithHelp(
+			"Silhouette Color",
+			"シルエット色",
+			silhouetteSettings.foregroundColor,
+			"Color used for pixels where world geometry writes depth.",
+			"地形や人物など、深度が書き込まれている領域の色です。");
+		changed |= ColorEditWithHelp(
+			"Background Color",
+			"背景色",
+			silhouetteSettings.backgroundColor,
+			"Color used for clear-depth sky pixels. Water, moons, particles, and transparent objects follow whether they write to the current main depth.",
+			"深度が未描画の空に使う色です。水面・月・パーティクル・半透明物は、現在のメイン深度へ書き込むかどうかで分類されます。");
+		MenuFramework::ItemTooltip(Localized(
+			"Silhouette mode always stops in the main menu, loading screens, and world/local maps, independently of the normal DoF menu setting.",
+			"通常DoFのメニュー設定とは別に、タイトル・ロード・ワールドマップ・ローカルマップでは常に停止します。"));
+		RenderSilhouetteHotkeyControl();
+		return changed;
+	}
+
+	void __stdcall RenderSilhouetteWindow()
+	{
+		std::scoped_lock lock(uiMutex);
+		const auto fontPushed = PushLocalizedFont();
+		bool open = true;
+		const auto visible = MenuFramework::Begin(
+			Localized(
+				"Silhouette Photo Mode##CinematicDoFStandaloneSilhouette",
+				"シルエット撮影モード##CinematicDoFStandaloneSilhouette"),
+			&open);
+		if (visible) {
+			if (RenderSilhouetteControls()) {
+				ApplyLive();
+			}
+			if (MenuFramework::Button(Localized("Save Startup Settings", "次回起動設定を保存"))) {
+				if (SaveSilhouetteSettings(silhouetteSettings) && SaveHotkeySettings(hotkeySettings)) {
+					SetStatus(
+						"Saved silhouette startup settings and hotkey.",
+						"シルエットの次回起動設定とホットキーを保存しました。");
+				} else {
+					SetStatus(
+						"Could not save silhouette settings. See the plugin log.",
+						"シルエット設定を保存できませんでした。ログを確認してください。");
+				}
+			}
+			MenuFramework::ItemTooltip(Localized(
+				"Saves the current silhouette switch, edge smoothing, and colors for the next launch. Hotkey assignments are saved immediately when changed.",
+				"現在のシルエットON/OFF、輪郭の滑らかさ、2色を次回起動用に保存します。ホットキーは変更時に自動保存されます。"));
+			MenuFramework::Text(
+				interfaceSettings.japanese ? statusTextJapanese.c_str() : statusTextEnglish.c_str());
+		}
+		MenuFramework::End();
+		if (!open && silhouetteWindow) {
+			silhouetteWindow->isOpen = false;
+		}
+		if (fontPushed) {
+			MenuFramework::PopFont();
+		}
+	}
+
 	void __stdcall RenderMainPage()
 	{
 		std::scoped_lock lock(uiMutex);
 		const auto fontPushed = PushLocalizedFont();
 		if (RenderModeControls()) {
+			ApplyLive();
+		}
+		if (!silhouetteWindow && RenderSilhouetteControls()) {
 			ApplyLive();
 		}
 		if (RenderCoreControls()) {
@@ -1073,7 +1236,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.0");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.3");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}
@@ -1087,12 +1250,14 @@ void CDoF::UI::Initialize(Settings a_settings)
 	uiSettings = a_settings;
 	targetFocusSettings = LoadTargetFocusSettings();
 	modeSettings = LoadModeSettings();
+	silhouetteSettings = LoadSilhouetteSettings();
 	interfaceSettings = LoadInterfaceSettings();
 	hotkeySettings = LoadHotkeySettings();
 	japaneseFontEnabled = IsJapaneseFontEnabled();
 	LoadPresets();
 	editingPresetIndex = FindMatchingPreset();
 	DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
+	DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
 	ApplyTargetFocus();
 	initialized = true;
 }
@@ -1107,6 +1272,10 @@ void CDoF::UI::TryRegister()
 		spdlog::warn("SKSE Menu Framework is loaded but AddSectionItem is unavailable");
 		return;
 	}
+	silhouetteWindow = MenuFramework::AddWindow(RenderSilhouetteWindow, true);
+	if (!silhouetteWindow) {
+		spdlog::warn("SKSE Menu Framework AddWindow is unavailable; using inline silhouette controls");
+	}
 	registered = true;
 	spdlog::info("Registered SKSE Menu Framework UI (framework API {:.1f})", MenuFramework::GetVersion());
 }
@@ -1118,34 +1287,69 @@ void CDoF::UI::HandleKeyboardKey(std::uint32_t a_keyCode)
 		return;
 	}
 
-	if (waitingForHotkey) {
+	if (hotkeyCaptureTarget != HotkeyCaptureTarget::kNone) {
 		if (a_keyCode == kEscapeKey) {
-			waitingForHotkey = false;
+			hotkeyCaptureTarget = HotkeyCaptureTarget::kNone;
 			SetStatus("Hotkey assignment cancelled.", "ホットキーの登録を中止しました。");
 			return;
 		}
 
-		const auto previousKey = hotkeySettings.toggleDoFKey;
-		hotkeySettings.toggleDoFKey =
+		const auto previousSettings = hotkeySettings;
+		const auto assignedKey =
 			(a_keyCode == kBackspaceKey || a_keyCode == kDeleteKey) ? 0u : a_keyCode;
+		const auto target = hotkeyCaptureTarget;
+		if (target == HotkeyCaptureTarget::kDoF) {
+			hotkeySettings.toggleDoFKey = assignedKey;
+			if (assignedKey != 0 && hotkeySettings.toggleSilhouetteKey == assignedKey) {
+				hotkeySettings.toggleSilhouetteKey = 0;
+			}
+		} else {
+			hotkeySettings.toggleSilhouetteKey = assignedKey;
+			if (assignedKey != 0 && hotkeySettings.toggleDoFKey == assignedKey) {
+				hotkeySettings.toggleDoFKey = 0;
+			}
+		}
 		if (!SaveHotkeySettings(hotkeySettings)) {
-			hotkeySettings.toggleDoFKey = previousKey;
-			waitingForHotkey = false;
+			hotkeySettings = previousSettings;
+			hotkeyCaptureTarget = HotkeyCaptureTarget::kNone;
 			SetStatus(
 				"Could not save the hotkey. See the plugin log.",
 				"ホットキーを保存できませんでした。ログを確認してください。");
 			return;
 		}
 
-		waitingForHotkey = false;
-		if (hotkeySettings.toggleDoFKey == 0) {
-			SetStatus("DoF hotkey cleared.", "DoFホットキーを解除しました。");
-		} else {
-			const auto keyName = HotkeyName(hotkeySettings.toggleDoFKey);
+		hotkeyCaptureTarget = HotkeyCaptureTarget::kNone;
+		if (assignedKey == 0) {
 			SetStatus(
-				std::format("DoF hotkey assigned to {}.", keyName),
-				std::format("DoFホットキーを{}に登録しました。", keyName));
+				target == HotkeyCaptureTarget::kDoF ? "DoF hotkey cleared." : "Silhouette hotkey cleared.",
+				target == HotkeyCaptureTarget::kDoF ? "DoFホットキーを解除しました。" : "シルエットホットキーを解除しました。");
+		} else {
+			const auto keyName = HotkeyName(assignedKey);
+			SetStatus(
+				target == HotkeyCaptureTarget::kDoF ?
+					std::format("DoF hotkey assigned to {}.", keyName) :
+					std::format("Silhouette hotkey assigned to {}.", keyName),
+				target == HotkeyCaptureTarget::kDoF ?
+					std::format("DoFホットキーを{}に登録しました。", keyName) :
+					std::format("シルエットホットキーを{}に登録しました。", keyName));
 		}
+		return;
+	}
+
+	if (hotkeySettings.toggleSilhouetteKey != 0 && a_keyCode == hotkeySettings.toggleSilhouetteKey) {
+		silhouetteSettings.enabled = !silhouetteSettings.enabled;
+		DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
+		SetStatus(
+			silhouetteSettings.enabled ?
+				"Silhouette mode enabled by hotkey (not saved)." :
+				"Silhouette mode disabled by hotkey (not saved).",
+			silhouetteSettings.enabled ?
+				"ホットキーでシルエット撮影モードをONにしました（INI未保存）。" :
+				"ホットキーでシルエット撮影モードをOFFにしました（INI未保存）。");
+		spdlog::info(
+			"Silhouette mode {} by keyboard hotkey 0x{:02X}",
+			silhouetteSettings.enabled ? "enabled" : "disabled",
+			a_keyCode);
 		return;
 	}
 

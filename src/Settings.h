@@ -4,6 +4,8 @@ namespace CDoF
 {
 	inline constexpr std::uint32_t kPresetSlotCount{ 9 };
 	inline constexpr std::uint32_t kMaxPresetIndex{ kPresetSlotCount - 1 };
+	inline constexpr float kManualFocusMinMeters{ 0.1F };
+	inline constexpr float kManualFocusMaxMeters{ 2000.0F };
 
 	enum class TargetFocusSource : std::uint32_t
 	{
@@ -59,6 +61,14 @@ namespace CDoF
 		bool normalGameplayEnabled{ true };
 	};
 
+	struct SilhouetteSettings
+	{
+		bool enabled{ false };
+		bool smoothEdges{ true };
+		std::array<float, 3> foregroundColor{ 0.0F, 0.0F, 0.0F };
+		std::array<float, 3> backgroundColor{ 1.0F, 1.0F, 1.0F };
+	};
+
 	struct InterfaceSettings
 	{
 		bool japanese{ false };
@@ -68,6 +78,7 @@ namespace CDoF
 	{
 		// DirectInput keyboard scan code. 0 means unassigned.
 		std::uint32_t toggleDoFKey{};
+		std::uint32_t toggleSilhouetteKey{};
 	};
 
 	Settings LoadSettings();
@@ -79,6 +90,8 @@ namespace CDoF
 	bool SaveTargetFocusSettings(const TargetFocusSettings& a_settings);
 	ModeSettings LoadModeSettings();
 	bool SaveModeSettings(const ModeSettings& a_settings);
+	SilhouetteSettings LoadSilhouetteSettings();
+	bool SaveSilhouetteSettings(const SilhouetteSettings& a_settings);
 	TargetFocusSettings LoadPresetTargetFocusSettings(
 		const wchar_t* a_section,
 		TargetFocusSettings a_defaults);
