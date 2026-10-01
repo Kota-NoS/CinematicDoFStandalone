@@ -2,7 +2,7 @@
 
 Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用できるよう実装したSKSEプラグインです。Community Shaders本体は必須ではありません。
 
-バージョン1.0.2は、「空を鮮明に保つ」に遠端深度の月の保護を追加し、独立した2色のシルエット撮影モードと、0.1～2000mを扱える対数操作の「ピント距離」を収録します。実深度を併用する人物保護、地形・水面との滑らかな境界、Skyrim 1.6.1170／1.7.104対応、従来のプリセット／INI互換性も維持します。
+バージョン1.0.3は、透過素材の境界、HDR0の手前ぼけ被覆率、空・月・山・建造物・枝葉の境界合成を安定化します。「空を鮮明に保つ」は空色の漏れを防ぎながら、空を背景にした細い形状も自然にぼかします。最良の透過表現には64-bit HDRを推奨し、従来のプリセット／INI互換性を維持します。
 
 ## 特徴
 
@@ -26,7 +26,7 @@ Jiaye氏のCommunity Shaders AIOを基に、Cinematic DoFを単独で利用で�
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0（ゲーム内UIを使う場合のみ）
 
-ビルドはSkyrim SE／AEを対象とします。1.0.2の月保護はAE 1.6.1170で、メイン環境、Community Shadersなし、最小環境、`bUse64bitsHDRRenderTarget=0`の最小環境にて実ゲーム確認済みです。1.7.104対応とAddress Library v5形式は、1.0.0で検証済みの経路を維持します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
+ビルドはSkyrim SE／AEを対象とします。1.0.3はAE 1.6.1170のメイン環境、Community Shadersなしの環境、および`bUse64bitsHDRRenderTarget=0`の最小環境で実ゲーム確認済みです。HDR0で人物周囲に現れていた膜は改善していますが、半透明素材越しの背景が十分にぼけず鮮明に残る場合があります。最良の透過表現には`bUse64bitsHDRRenderTarget=1`を推奨します。Community Shadersは不要です。併用する場合は、二重適用を避けるためCommunity Shaders側のDepth of FieldをOFFにしてください。
 
 人物追従中はCommunity ShadersやHDR設定にかかわらず、投影した人物範囲と実深度を組み合わせて人物だけを保護します。Community Shaders併用時は人物追従中に限り手前ピント範囲の実効値を最低0.17 m、64-bit HDRが明示的に無効な場合は最低0.15 mにします。保存済みのINIやプリセット値は変更しません。
 

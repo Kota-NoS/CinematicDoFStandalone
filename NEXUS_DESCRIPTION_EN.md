@@ -2,7 +2,7 @@
 
 CinematicDoFStandalone is an SKSE plugin that makes Cinematic DoF available as a standalone effect. It is based on Jiaye's Community Shaders AIO work, but Community Shaders itself is not required.
 
-Version 1.0.2 adds far-depth moon protection to `Keep Sky Sharp`, an independent two-colour Silhouette Photo Mode, and a logarithmic Fixed Focus distance control covering 0.1-2000 m. Depth-confirmed actor protection, feathered geometry/water boundaries, Skyrim 1.6.1170/1.7.104 support, and existing preset/INI compatibility are retained.
+Version 1.0.3 stabilizes transparent-material boundaries, HDR0 near-blur coverage, and boundary composition for sky, moons, mountains, buildings, and foliage. `Keep Sky Sharp` prevents sky-color leakage while allowing thin geometry against the sky to blur naturally. 64-bit HDR is recommended for the best transparency rendering, and existing preset and INI compatibility is retained.
 
 ## Features
 
@@ -26,7 +26,7 @@ Version 1.0.2 adds far-depth moon protection to `Keep Sky Sharp`, an independent
 - Address Library for SKSE Plugins
 - SKSE Menu Framework 3.8.0 only if you want the in-game UI
 
-The build targets Skyrim SE and AE. Version 1.0.2's moon protection was tested in game on AE 1.6.1170 with the main setup, without Community Shaders, with a minimal setup, and with a minimal setup plus `bUse64bitsHDRRenderTarget=0`. Skyrim 1.7.104 support and the Address Library v5 path retain the route validated for version 1.0.0. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
+The build targets Skyrim SE and AE. Version 1.0.3 was tested in game on AE 1.6.1170 with the main setup, without Community Shaders, and in a minimal setup using `bUse64bitsHDRRenderTarget=0`. The membrane previously visible around subjects under HDR0 is improved, but scenery behind semi-transparent materials may remain sharper than the surrounding defocused background. For the best transparency rendering, use `bUse64bitsHDRRenderTarget=1`. Community Shaders is optional. If it is installed, disable its Depth of Field effect to avoid applying two DoF effects at once.
 
 While an actor is tracked, the plugin combines the projected actor area with measured depth to protect the actor regardless of Community Shaders or HDR settings. With Community Shaders, tracked actors receive an effective near-focus floor of 0.17 m; when 64-bit HDR is explicitly disabled, the effective floor is 0.15 m. Saved INI and preset values are not changed.
 

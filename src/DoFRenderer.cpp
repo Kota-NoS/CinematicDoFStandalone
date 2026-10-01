@@ -448,6 +448,19 @@ bool CDoF::DoFRenderer::EnsureResources(
 	const auto sixteenthWidth = std::max(1U, (eighthWidth + 1U) / 2U);
 	const auto sixteenthHeight = std::max(1U, (eighthHeight + 1U) / 2U);
 	const auto color = a_inputDescription.Format;
+	// Aligned Transparency Mask Test33 stores transparency confidence in the
+	// alpha channel of the pre-blur/far-gather pyramid. HDR0 uses R11G11B10,
+	// which has no alpha, so promote only these intermediate textures to RGBA16F.
+	// HDR1 already uses an alpha-capable format and remains unchanged.
+	const auto farGatherSourceColor = color == DXGI_FORMAT_R11G11B10_FLOAT ?
+		DXGI_FORMAT_R16G16B16A16_FLOAT :
+		color;
+	// R11G11B10_FLOAT has no alpha channel, while the near-blur pass stores its
+	// coverage in alpha for the full-resolution combiner. Preserve that coverage
+	// in a dedicated alpha-capable half-resolution texture on the HDR0 path.
+	const auto nearBlurColor = color == DXGI_FORMAT_R11G11B10_FLOAT ?
+		DXGI_FORMAT_R16G16B16A16_FLOAT :
+		color;
 
 	const auto createColor = [&](Texture& a_texture, bool a_half) {
 		return CreateTexture(a_device, a_texture, color, a_half ? halfWidth : width, a_half ? halfHeight : height);
@@ -456,12 +469,12 @@ bool CDoF::DoFRenderer::EnsureResources(
 		return CreateTexture(a_device, a_texture, DXGI_FORMAT_R32_FLOAT, a_half ? halfWidth : width, a_half ? halfHeight : height);
 	};
 
-	if (!createColor(resources_.preBlurred, true) ||
-		!CreateTexture(a_device, resources_.farGatherColor1, color, quarterWidth, quarterHeight) ||
-		!CreateTexture(a_device, resources_.farGatherColor2, color, eighthWidth, eighthHeight) ||
-		!CreateTexture(a_device, resources_.farGatherColor3, color, sixteenthWidth, sixteenthHeight) ||
+	if (!CreateTexture(a_device, resources_.preBlurred, farGatherSourceColor, halfWidth, halfHeight) ||
+		!CreateTexture(a_device, resources_.farGatherColor1, farGatherSourceColor, quarterWidth, quarterHeight) ||
+		!CreateTexture(a_device, resources_.farGatherColor2, farGatherSourceColor, eighthWidth, eighthHeight) ||
+		!CreateTexture(a_device, resources_.farGatherColor3, farGatherSourceColor, sixteenthWidth, sixteenthHeight) ||
 		!createColor(resources_.farBlurred, true) ||
-		!createColor(resources_.nearBlurred, true) ||
+		!CreateTexture(a_device, resources_.nearBlurred, nearBlurColor, halfWidth, halfHeight) ||
 		!createColor(resources_.blurredFiltered, true) ||
 		!createColor(resources_.postSmooth, false) ||
 		!createColor(resources_.postSmooth2, false) ||
@@ -489,10 +502,11 @@ bool CDoF::DoFRenderer::EnsureResources(
 	resources_.dofReady = true;
 
 	spdlog::info(
-		"Created depth-of-field resources: {}x{}, format {} (input allocation {}x{})",
+		"Created depth-of-field resources: {}x{}, color format {}, near-blur format {} (input allocation {}x{})",
 		width,
 		height,
 		static_cast<std::uint32_t>(color),
+		static_cast<std::uint32_t>(nearBlurColor),
 		a_inputDescription.Width,
 		a_inputDescription.Height);
 	return true;
@@ -1073,6 +1087,10 @@ void CDoF::DoFRenderer::ApplyBeforePostProcessing()
 			const auto standaloneTargetGuardSetting =
 				(runtimeReflectionsEnabled && !*runtimeReflectionsEnabled) ||
 				standaloneHdrTargetGuardSetting;
+			// Hybrid Test28 keeps the public 1.0.2 depth-source choice for the base
+			// blur while exposing main depth separately for transparency detail recovery.
+			// The 1.0.3 transparency/HDR resources and Test21 shader protections
+			// remain unchanged.
 			useLowSpecDepthFallback_ = communityShadersLoaded && lowSpecDepthSettings;
 			useStandaloneNonActorTargetGuard_ =
 				!communityShadersLoaded && standaloneTargetGuardSetting;
@@ -1084,23 +1102,26 @@ void CDoF::DoFRenderer::ApplyBeforePostProcessing()
 				!communityShadersLoaded && standaloneHdrTargetGuardSetting;
 			depthPathChecked_ = true;
 			spdlog::info(
-				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path; tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders actor near-focus assist={}; standalone HDR-off near-focus assist={}",
+				"Display depth settings at first frame: SAO={}, SSR={}, 64-bit HDR={}; main target format={} (actual 64-bit HDR target={}); Community Shaders={}; selected {} depth path (Dual-Depth Detail Test28); tracked-actor depth guard=unified; standalone non-actor guard={}; Community Shaders actor near-focus assist={}; standalone HDR-off near-focus assist={}",
 				DescribeDisplayBool(runtimeSaoEnabled),
 				DescribeDisplayBool(runtimeReflectionsEnabled),
 				DescribeDisplayBool(runtimeHdr64Enabled),
 				static_cast<std::uint32_t>(inputDescription.Format),
 				actualHdr64Target ? "yes" : "no",
 				communityShadersLoaded ? "loaded" : "not loaded",
-				useLowSpecDepthFallback_ ? "low-spec fallback" : "standard",
+				useLowSpecDepthFallback_ ? "1.0.2 low-spec fallback" : "main",
 				useStandaloneNonActorTargetGuard_ ? "enabled" : "disabled",
 				useCommunityShadersActorNearFocusAssist_ ? "enabled" : "disabled",
 				useStandaloneNearFocusAssist_ ? "enabled" : "disabled");
 			if (lowSpecDepthSettings && !communityShadersLoaded) {
 				spdlog::warn(
-					"Low-spec depth settings were detected, but Community Shaders was not loaded; preserving the standard depth path");
+					"Dual-Depth Detail Test28 detected low-spec depth settings without Community Shaders; preserving main depth");
 			}
 		}
 
+		// Use the same pre-pass depth chosen by public 1.0.2 for ordinary CoC and
+		// autofocus. Sky/moon classification still receives mainDepth separately,
+		// preserving the later transparency and Keep Sky Sharp corrections.
 		if (useLowSpecDepthFallback_) {
 			auto fallbackDepth =
 				depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY].depthSRV;
@@ -1109,7 +1130,7 @@ void CDoF::DoFRenderer::ApplyBeforePostProcessing()
 			} else if (!loggedDepthFallbackUnavailable_) {
 				loggedDepthFallbackUnavailable_ = true;
 				spdlog::warn(
-					"Low-spec depth fallback was requested but its depth texture was unavailable or incompatible; using standard depth");
+					"Dual-Depth Detail Test28 requested the 1.0.2 fallback depth, but it was unavailable or incompatible; using main depth");
 			}
 		}
 
@@ -1383,10 +1404,9 @@ void CDoF::DoFRenderer::Dispatch(
 	srvs[0] = a_color;
 	srvs[1] = resources_.previousFocus.srv.Get();
 	srvs[2] = a_depth;
-	// Keep autofocus and all ordinary DoF calculations on the selected depth
-	// path, but classify sky from the current main depth. Community Shaders'
-	// low-spec fallback is copied before water renders, so using it for both
-	// purposes incorrectly classifies distant water as clear sky.
+	// Keep autofocus, ordinary DoF calculations, and sky classification on the
+	// full-resolution main depth so transparent subjects retain the same depth
+	// behavior across Community Shaders and display-quality configurations.
 	srvs[11] = a_skyMaskDepth;
 	uavs[2] = resources_.coc.uav.Get();
 	bindAndDispatch(shaders_.calculateCoC.Get(), fullWidth, fullHeight);
@@ -1419,6 +1439,10 @@ void CDoF::DoFRenderer::Dispatch(
 	// Pre-, far-, and near-plane blur. Aperture shaping is calculated directly
 	// from the saved blade count, roundness, strength, and rotation constants.
 	srvs[0] = a_color;
+	// The pre-blur now creates a half-resolution dual-depth transparency mask in
+	// alpha, so expose the same focus and fallback-depth inputs used by Test31.
+	srvs[1] = resources_.previousFocus.srv.Get();
+	srvs[2] = a_depth;
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[4] = resources_.cocBlur2.srv.Get();
 	// Pre-blur performs the general bright-bokeh amplification. Expose main depth
@@ -1493,8 +1517,18 @@ void CDoF::DoFRenderer::Dispatch(
 	bindAndDispatch(shaders_.postSmoothing1.Get(), fullWidth, fullHeight);
 	resetViews();
 	srvs[0] = resources_.postSmooth.srv.Get();
+	// Test28 restores only fine subject detail where the 1.0.2 fallback depth and
+	// the main depth disagree. Supply the focus texture, both depth surfaces, and
+	// the untouched scene colour to the final pass; the broad blurred colour still
+	// comes from the fallback-depth path.
+	srvs[1] = resources_.previousFocus.srv.Get();
+	srvs[2] = a_depth;
 	srvs[3] = resources_.coc.srv.Get();
 	srvs[7] = resources_.postSmooth2.srv.Get();
+	srvs[8] = a_color;
+	// Test34 reads Test33's aligned half-resolution transparency confidence in
+	// the final pass to restrict medium-band recovery to broad veil interiors.
+	srvs[9] = resources_.preBlurred.srv.Get();
 	srvs[11] = a_skyMaskDepth;
 	uavs[0] = resources_.output.uav.Get();
 	bindAndDispatch(shaders_.postSmoothing2AndFocusing.Get(), fullWidth, fullHeight);
