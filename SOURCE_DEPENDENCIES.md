@@ -1,6 +1,6 @@
 # Source and build dependencies
 
-This repository contains the corresponding source for CinematicDoFStandalone 1.0.3 and the CommonLibSSE-NG source snapshot used for the build. Generated binaries, build directories, package caches, and object files are intentionally excluded from Git. A separately published source archive may include the matching release DLL and PDB under `package` for source correspondence and debugging.
+This repository contains the corresponding source for CinematicDoFStandalone 1.0.10 and the CommonLibSSE-NG source snapshot used for the build. Generated build directories, package caches, and object files are excluded from the source archive. The separately published source archive includes the shader sources and the same release documentation as the binary packages.
 
 ## Toolchain
 
@@ -15,15 +15,17 @@ xmake f -m releasedbg -a x64
 xmake build CinematicDoFStandalone
 ```
 
-The DLL is written to `work/artifacts/1.0.3/CinematicDoFStandalone.dll`.
+The DLL is written to `work/artifacts/1.0.10/CinematicDoFStandalone.dll`.
 
-## Included source dependency
+## Included source dependencies
 
 - CommonLibSSE-NG 6.1.0 source snapshot: https://github.com/alandtse/CommonLibSSE-NG
   - The snapshot's `COPYING`, `EXCEPTIONS.md`, and historical `LICENSE` files are retained.
   - This project enables Skyrim SE and AE, disables VR, and uses Address Library compatibility.
   - The bundled snapshot carries the minimal compatibility backport validated for Skyrim 1.7.104: Skyrim minor versions 6 and newer are classified as AE, both supported SKSE plugin-declaration forms emit the Address Library v5 flag, and the relocation loader reads the format 5 dense ID table while preserving the older format 1/2 path.
   - The renderer separately adds display-setting-scoped target protection documented in `RUNTIME_1.7.104_VALIDATION.md`; no preset or INI schema was changed.
+
+- SimpleIni is vendored under lib/simpleini and used for INI persistence. Its license is included in LICENSES/SimpleIni.txt.
 
 ## Resolved xmake dependencies
 

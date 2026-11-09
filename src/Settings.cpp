@@ -1,25 +1,80 @@
 #include "Settings.h"
+#include <Windows.h>
+#ifndef CP_UTF8
+#define CP_UTF8 65001
+#endif
+#include <SimpleIni.h>
 
 namespace
 {
 	constexpr auto kPath = L"Data\\SKSE\\Plugins\\CinematicDoFStandalone.ini";
 	constexpr auto kSection = L"DepthOfField";
 	constexpr auto kTargetFocusSection = L"TargetFocus";
+	constexpr auto kTDMFocusSection = L"TDMLockFocus";
+	constexpr auto kSneakFocusSection = L"SneakFocus";
 	constexpr auto kModeSection = L"Modes";
 	constexpr auto kSilhouetteSection = L"Silhouette";
+	constexpr auto kDepthFrameSection = L"DepthFrame";
+	constexpr auto kExperimentalTransparencySection = L"ExperimentalTransparency";
 	constexpr auto kInterfaceSection = L"Interface";
 	constexpr auto kHotkeySection = L"Hotkeys";
+
+    std::mutex iniMutex;
+    CSimpleIniW ini;
+    bool iniReadable = false;
+
+    struct IniAccess
+    {
+        std::scoped_lock<std::mutex> lock{ iniMutex };
+
+        IniAccess()
+        {
+            ini.Reset();
+            const auto attributes = GetFileAttributesW(kPath);
+            const auto error = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
+            iniReadable = error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ||
+                (error == ERROR_SUCCESS && ini.LoadFile(kPath) >= 0);
+            if (!iniReadable) {
+                spdlog::error("Could not read CinematicDoFStandalone.ini");
+            }
+        }
+    };
+
+    bool CommitIni(bool a_success)
+    {
+        if (!a_success || !iniReadable) {
+            return false;
+        }
+        const std::wstring temporary = std::wstring(kPath) + L".tmp";
+        if (ini.SaveFile(temporary.c_str(), false) >= 0 &&
+            MoveFileExW(temporary.c_str(), kPath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            return true;
+        }
+        DeleteFileW(temporary.c_str());
+        spdlog::error("Could not replace CinematicDoFStandalone.ini");
+        return false;
+    }
+
+    void ReadValue(const wchar_t* a_section, const wchar_t* a_key, const wchar_t* a_default,
+        wchar_t* a_buffer, size_t a_capacity)
+    {
+        std::wstring_view value = ini.GetValue(a_section, a_key, a_default);
+        if (value.size() >= 2 && (value.front() == L'"' || value.front() == L'\'') && value.back() == value.front()) {
+            value.remove_prefix(1);
+            value.remove_suffix(1);
+        }
+        wcsncpy_s(a_buffer, a_capacity, value.data(), std::min(value.size(), a_capacity - 1));
+    }
 
 	bool ReadBool(const wchar_t* a_section, const wchar_t* a_key, bool a_default)
 	{
 		wchar_t value[32]{};
-		GetPrivateProfileStringW(
+		ReadValue(
 			a_section,
 			a_key,
 			a_default ? L"true" : L"false",
 			value,
-			static_cast<DWORD>(std::size(value)),
-			kPath);
+			std::size(value));
 		std::wstring normalized(value);
 		std::ranges::transform(normalized, normalized.begin(), [](wchar_t a_character) {
 			return static_cast<wchar_t>(std::towlower(a_character));
@@ -42,7 +97,7 @@ namespace
 		wchar_t fallback[32]{};
 		wchar_t value[64]{};
 		swprintf_s(fallback, L"%.6g", static_cast<double>(a_default));
-		GetPrivateProfileStringW(a_section, a_key, fallback, value, static_cast<DWORD>(std::size(value)), kPath);
+		ReadValue(a_section, a_key, fallback, value, std::size(value));
 		try {
 			return std::stof(value);
 		} catch (...) {
@@ -59,7 +114,7 @@ namespace
 		wchar_t fallback[32]{};
 		wchar_t value[64]{};
 		swprintf_s(fallback, L"%u", a_default);
-		GetPrivateProfileStringW(a_section, a_key, fallback, value, static_cast<DWORD>(std::size(value)), kPath);
+		ReadValue(a_section, a_key, fallback, value, std::size(value));
 		try {
 			return static_cast<std::uint32_t>(std::stoul(value));
 		} catch (...) {
@@ -78,13 +133,12 @@ namespace
 
 	bool WriteValue(const wchar_t* a_section, const wchar_t* a_key, const wchar_t* a_value)
 	{
-		if (WritePrivateProfileStringW(a_section, a_key, a_value, kPath)) {
+		if (iniReadable && ini.SetValue(a_section, a_key, a_value) >= 0) {
 			return true;
 		}
-		spdlog::error("Failed to write INI key {}.{} (Win32 error {})",
+		spdlog::error("Failed to write INI key {}.{}",
 			std::filesystem::path(a_section).string(),
-			std::filesystem::path(a_key).string(),
-			GetLastError());
+			std::filesystem::path(a_key).string());
 		return false;
 	}
 
@@ -115,6 +169,10 @@ namespace
 		a_defaults.transitionSpeed = Clamp(ReadFloat(a_section, L"TransitionSpeed", a_defaults.transitionSpeed), 0.01F, 1.0F);
 		a_defaults.focusX = Clamp(ReadFloat(a_section, L"FocusX", a_defaults.focusX), 0.0F, 1.0F);
 		a_defaults.focusY = Clamp(ReadFloat(a_section, L"FocusY", a_defaults.focusY), 0.0F, 1.0F);
+		a_defaults.firstPersonFocusX = Clamp(
+			ReadFloat(a_section, L"FirstPersonFocusX", a_defaults.firstPersonFocusX), 0.0F, 1.0F);
+		a_defaults.firstPersonFocusY = Clamp(
+			ReadFloat(a_section, L"FirstPersonFocusY", a_defaults.firstPersonFocusY), 0.0F, 1.0F);
 		a_defaults.autoFocusOffsetMeters = Clamp(
 			ReadFloat(a_section, L"AutoFocusOffsetMeters", a_defaults.autoFocusOffsetMeters), -10.0F, 10.0F);
 		a_defaults.manualFocusMeters = Clamp(
@@ -139,6 +197,9 @@ namespace
 		a_defaults.postBlurSmoothing = Clamp(ReadFloat(a_section, L"PostBlurSmoothing", a_defaults.postBlurSmoothing), 0.0F, 2.0F);
 		a_defaults.petzvalStrength = Clamp(ReadFloat(a_section, L"PetzvalStrength", a_defaults.petzvalStrength), 0.0F, 2.0F);
 		a_defaults.apertureBokeh = ReadBool(a_section, L"ApertureBokeh", a_defaults.apertureBokeh);
+		a_defaults.apertureFill = ReadBool(a_section, L"ApertureFill", a_defaults.apertureFill);
+		a_defaults.apertureShape = std::clamp(
+			ReadUInt(a_section, L"ApertureShape", a_defaults.apertureShape), 0U, 2U);
 		a_defaults.apertureBlades = std::clamp(
 			ReadUInt(a_section, L"ApertureBlades", a_defaults.apertureBlades), 3U, 12U);
 		a_defaults.apertureRoundness = Clamp(
@@ -147,6 +208,28 @@ namespace
 			ReadFloat(a_section, L"ApertureShapeStrength", a_defaults.apertureShapeStrength), 0.0F, 1.0F);
 		a_defaults.apertureRotationDegrees = Clamp(
 			ReadFloat(a_section, L"ApertureRotationDegrees", a_defaults.apertureRotationDegrees), 0.0F, 360.0F);
+		a_defaults.starburstEnabled = ReadBool(a_section, L"StarburstEnabled", a_defaults.starburstEnabled);
+		a_defaults.starburstRays = std::clamp(
+			ReadUInt(a_section, L"StarburstRays", a_defaults.starburstRays), 4U, 12U);
+		a_defaults.starburstStrength = Clamp(
+			ReadFloat(a_section, L"StarburstStrength", a_defaults.starburstStrength), 0.0F, 16.0F);
+		a_defaults.starburstLength = Clamp(
+			ReadFloat(a_section, L"StarburstLength", a_defaults.starburstLength), 0.05F, 1.5F);
+		const auto legacyStarburstThreshold =
+			ReadFloat(a_section, L"StarburstThreshold", a_defaults.highlightExtractionThreshold);
+		a_defaults.highlightExtractionThreshold = Clamp(
+			ReadFloat(a_section, L"HighlightExtractionThreshold", legacyStarburstThreshold), 0.20F, 1.50F);
+		a_defaults.starburstRotationDegrees = Clamp(
+			ReadFloat(a_section, L"StarburstRotationDegrees", a_defaults.starburstRotationDegrees), 0.0F, 180.0F);
+		const auto legacyStarburstCoreFill = ReadFloat(a_section, L"StarburstCoreFill", a_defaults.bokehCoreFill);
+		a_defaults.bokehCoreFill = Clamp(
+			ReadFloat(a_section, L"BokehCoreFill", legacyStarburstCoreFill), 0.0F, 2.0F);
+		a_defaults.starburstWideFlareSuppression = Clamp(
+			ReadFloat(a_section, L"StarburstWideFlareSuppression", a_defaults.starburstWideFlareSuppression), 0.0F, 1.0F);
+		a_defaults.starburstHighlightSensitivity = Clamp(
+			ReadFloat(a_section, L"StarburstHighlightSensitivity", a_defaults.starburstHighlightSensitivity), 1.0F, 4.0F);
+		a_defaults.starburstStrongLightSuppression = Clamp(
+			ReadFloat(a_section, L"StarburstStrongLightSuppression", a_defaults.starburstStrongLightSuppression), 0.0F, 1.0F);
 		return a_defaults;
 	}
 
@@ -158,6 +241,8 @@ namespace
 		success = WriteBool(a_section, L"DisableInMainAndLoadingMenus", a_settings.disableInMenus) && success;
 		success = WriteFloat(a_section, L"FocusX", a_settings.focusX) && success;
 		success = WriteFloat(a_section, L"FocusY", a_settings.focusY) && success;
+		success = WriteFloat(a_section, L"FirstPersonFocusX", a_settings.firstPersonFocusX) && success;
+		success = WriteFloat(a_section, L"FirstPersonFocusY", a_settings.firstPersonFocusY) && success;
 		success = WriteFloat(a_section, L"AutoFocusOffsetMeters", a_settings.autoFocusOffsetMeters) && success;
 		success = WriteFloat(a_section, L"TransitionSpeed", a_settings.transitionSpeed) && success;
 		success = WriteFloat(a_section, L"ManualFocusMeters", a_settings.manualFocusMeters) && success;
@@ -176,18 +261,29 @@ namespace
 		success = WriteFloat(a_section, L"PostBlurSmoothing", a_settings.postBlurSmoothing) && success;
 		success = WriteFloat(a_section, L"PetzvalStrength", a_settings.petzvalStrength) && success;
 		success = WriteBool(a_section, L"ApertureBokeh", a_settings.apertureBokeh) && success;
+		success = WriteBool(a_section, L"ApertureFill", a_settings.apertureFill) && success;
+		success = WriteUInt(a_section, L"ApertureShape", std::clamp(a_settings.apertureShape, 0U, 2U)) && success;
 		success = WriteUInt(a_section, L"ApertureBlades", std::clamp(a_settings.apertureBlades, 3U, 12U)) && success;
 		success = WriteFloat(a_section, L"ApertureRoundness", a_settings.apertureRoundness) && success;
 		success = WriteFloat(a_section, L"ApertureShapeStrength", a_settings.apertureShapeStrength) && success;
 		success = WriteFloat(a_section, L"ApertureRotationDegrees", a_settings.apertureRotationDegrees) && success;
-		WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
-		return success;
+		success = WriteBool(a_section, L"StarburstEnabled", a_settings.starburstEnabled) && success;
+		success = WriteUInt(a_section, L"StarburstRays", std::clamp(a_settings.starburstRays, 4U, 12U)) && success;
+		success = WriteFloat(a_section, L"StarburstStrength", a_settings.starburstStrength) && success;
+		success = WriteFloat(a_section, L"StarburstLength", a_settings.starburstLength) && success;
+		success = WriteFloat(a_section, L"HighlightExtractionThreshold", a_settings.highlightExtractionThreshold) && success;
+		success = WriteFloat(a_section, L"StarburstRotationDegrees", a_settings.starburstRotationDegrees) && success;
+		success = WriteFloat(a_section, L"BokehCoreFill", a_settings.bokehCoreFill) && success;
+		success = WriteFloat(a_section, L"StarburstWideFlareSuppression", a_settings.starburstWideFlareSuppression) && success;
+		success = WriteFloat(a_section, L"StarburstHighlightSensitivity", a_settings.starburstHighlightSensitivity) && success;
+		success = WriteFloat(a_section, L"StarburstStrongLightSuppression", a_settings.starburstStrongLightSuppression) && success;
+		return CommitIni(success);
 	}
 
 	bool SectionExists(const wchar_t* a_section)
 	{
 		wchar_t value[16]{};
-		GetPrivateProfileStringW(a_section, L"FocalLength", L"", value, static_cast<DWORD>(std::size(value)), kPath);
+		ReadValue(a_section, L"FocalLength", L"", value, std::size(value));
 		return value[0] != L'\0';
 	}
 
@@ -209,6 +305,10 @@ namespace
 			1U));
 		a_defaults.targetFocusOffsetMeters = Clamp(
 			ReadFloat(a_section, L"TargetFocusOffsetMeters", a_defaults.targetFocusOffsetMeters), -10.0F, 10.0F);
+		a_defaults.useFirstPersonScreenAFFallback = ReadBool(
+			a_section,
+			L"UseFirstPersonScreenAFFallback",
+			a_defaults.useFirstPersonScreenAFFallback);
 		return a_defaults;
 	}
 
@@ -231,13 +331,17 @@ namespace
 			a_section,
 			L"TargetFocusOffsetMeters",
 			std::clamp(a_settings.targetFocusOffsetMeters, -10.0F, 10.0F)) && success;
-		WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
-		return success;
+		success = WriteBool(
+			a_section,
+			L"UseFirstPersonScreenAFFallback",
+			a_settings.useFirstPersonScreenAFFallback) && success;
+		return CommitIni(success);
 	}
 }
 
 CDoF::Settings CDoF::LoadSettings()
 {
+	const IniAccess iniAccess;
 	const auto result = LoadSection(kSection, Settings{});
 
 	spdlog::info("Settings loaded: enabled={}, autofocus={}, focalLength={}, fNumber={}",
@@ -250,6 +354,7 @@ CDoF::Settings CDoF::LoadSettings()
 
 bool CDoF::SaveSettings(const Settings& a_settings)
 {
+	const IniAccess iniAccess;
 	const auto success = SaveSection(kSection, a_settings);
 	if (success) {
 		spdlog::info("Settings saved to CinematicDoFStandalone.ini");
@@ -259,6 +364,7 @@ bool CDoF::SaveSettings(const Settings& a_settings)
 
 CDoF::Settings CDoF::LoadPresetSettings(const wchar_t* a_section, Settings a_defaults)
 {
+	const IniAccess iniAccess;
 	if (!SectionExists(a_section)) {
 		return a_defaults;
 	}
@@ -272,6 +378,7 @@ CDoF::Settings CDoF::LoadPresetSettings(const wchar_t* a_section, Settings a_def
 
 bool CDoF::SavePresetSettings(const wchar_t* a_section, const Settings& a_settings)
 {
+	const IniAccess iniAccess;
 	const auto success = SaveSection(a_section, a_settings);
 	if (success) {
 		spdlog::info("Preset saved to INI section {}", std::filesystem::path(a_section).string());
@@ -281,25 +388,29 @@ bool CDoF::SavePresetSettings(const wchar_t* a_section, const Settings& a_settin
 
 bool CDoF::PresetSectionExists(const wchar_t* a_section)
 {
+	const IniAccess iniAccess;
 	return SectionExists(a_section);
 }
 
 CDoF::TargetFocusSettings CDoF::LoadTargetFocusSettings()
 {
+	const IniAccess iniAccess;
 	const auto result = LoadTargetFocusSection(kTargetFocusSection, TargetFocusSettings{});
 	spdlog::info(
-		"Target focus loaded: dialogue enabled={}, preset={}, strength={}; target enabled={}, source={}, offset={} m",
+		"Target focus loaded: dialogue enabled={}, preset={}, strength={}; target enabled={}, source={}, offset={} m, first-person Screen AF fallback={}",
 		result.dialogueEnabled,
 		result.dialoguePreset,
 		result.dialogueDepthStrength,
 		result.consoleEnabled,
 		static_cast<std::uint32_t>(result.targetSource),
-		result.targetFocusOffsetMeters);
+		result.targetFocusOffsetMeters,
+		result.useFirstPersonScreenAFFallback);
 	return result;
 }
 
 bool CDoF::SaveTargetFocusSettings(const TargetFocusSettings& a_settings)
 {
+	const IniAccess iniAccess;
 	const auto success = SaveTargetFocusSection(kTargetFocusSection, a_settings);
 	if (success) {
 		spdlog::info("Target focus settings saved");
@@ -307,8 +418,51 @@ bool CDoF::SaveTargetFocusSettings(const TargetFocusSettings& a_settings)
 	return success;
 }
 
+CDoF::TDMFocusSettings CDoF::LoadTDMFocusSettings()
+{
+	const IniAccess iniAccess;
+	TDMFocusSettings result{};
+	result.enabled = ReadBool(kTDMFocusSection, L"Enabled", result.enabled);
+	result.profile = std::min(ReadUInt(kTDMFocusSection, L"Profile", result.profile), 2U);
+	result.blurStrength = Clamp(ReadFloat(kTDMFocusSection, L"BlurStrength", result.blurStrength), 0.0F, 3.0F);
+	result.nearBlurStrength = Clamp(ReadFloat(kTDMFocusSection, L"NearBlurStrength", result.nearBlurStrength), 0.0F, 1.0F);
+	return result;
+}
+
+bool CDoF::SaveTDMFocusSettings(const TDMFocusSettings& a_settings)
+{
+	const IniAccess iniAccess;
+	bool success = true;
+	success = WriteBool(kTDMFocusSection, L"Enabled", a_settings.enabled) && success;
+	success = WriteUInt(kTDMFocusSection, L"Profile", std::min(a_settings.profile, 2U)) && success;
+	success = WriteFloat(kTDMFocusSection, L"BlurStrength", std::clamp(a_settings.blurStrength, 0.0F, 3.0F)) && success;
+	success = WriteFloat(kTDMFocusSection, L"NearBlurStrength", std::clamp(a_settings.nearBlurStrength, 0.0F, 1.0F)) && success;
+	return CommitIni(success);
+}
+
+CDoF::SneakFocusSettings CDoF::LoadSneakFocusSettings()
+{
+	const IniAccess iniAccess;
+	SneakFocusSettings result{};
+	result.enabled = ReadBool(kSneakFocusSection, L"Enabled", result.enabled);
+	result.profile = std::min(ReadUInt(kSneakFocusSection, L"Profile", result.profile), 1U);
+	result.blurStrength = Clamp(ReadFloat(kSneakFocusSection, L"BlurStrength", result.blurStrength), 0.0F, 3.0F);
+	return result;
+}
+
+bool CDoF::SaveSneakFocusSettings(const SneakFocusSettings& a_settings)
+{
+	const IniAccess iniAccess;
+	bool success = true;
+	success = WriteBool(kSneakFocusSection, L"Enabled", a_settings.enabled) && success;
+	success = WriteUInt(kSneakFocusSection, L"Profile", std::min(a_settings.profile, 1U)) && success;
+	success = WriteFloat(kSneakFocusSection, L"BlurStrength", std::clamp(a_settings.blurStrength, 0.0F, 3.0F)) && success;
+	return CommitIni(success);
+}
+
 CDoF::ModeSettings CDoF::LoadModeSettings()
 {
+	const IniAccess iniAccess;
 	ModeSettings result{};
 	result.normalGameplayEnabled = ReadBool(
 		kModeSection, L"NormalGameplayEnabled", result.normalGameplayEnabled);
@@ -318,9 +472,10 @@ CDoF::ModeSettings CDoF::LoadModeSettings()
 
 bool CDoF::SaveModeSettings(const ModeSettings& a_settings)
 {
-	const auto success = WriteBool(
+	const IniAccess iniAccess;
+	auto success = WriteBool(
 		kModeSection, L"NormalGameplayEnabled", a_settings.normalGameplayEnabled);
-	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
+	success = CommitIni(success);
 	if (success) {
 		spdlog::info("Mode settings saved");
 	}
@@ -329,8 +484,10 @@ bool CDoF::SaveModeSettings(const ModeSettings& a_settings)
 
 CDoF::SilhouetteSettings CDoF::LoadSilhouetteSettings()
 {
+	const IniAccess iniAccess;
 	SilhouetteSettings result{};
 	result.enabled = ReadBool(kSilhouetteSection, L"Enabled", result.enabled);
+	result.cocMonochrome = ReadBool(kSilhouetteSection, L"CoCMonochrome", false);
 	result.smoothEdges = ReadBool(kSilhouetteSection, L"SmoothEdges", result.smoothEdges);
 	result.foregroundColor = {
 		Clamp(ReadFloat(kSilhouetteSection, L"ForegroundR", result.foregroundColor[0]), 0.0F, 1.0F),
@@ -353,8 +510,10 @@ CDoF::SilhouetteSettings CDoF::LoadSilhouetteSettings()
 
 bool CDoF::SaveSilhouetteSettings(const SilhouetteSettings& a_settings)
 {
+	const IniAccess iniAccess;
 	bool success = true;
 	success = WriteBool(kSilhouetteSection, L"Enabled", a_settings.enabled) && success;
+	success = WriteBool(kSilhouetteSection, L"CoCMonochrome", a_settings.cocMonochrome) && success;
 	success = WriteBool(kSilhouetteSection, L"SmoothEdges", a_settings.smoothEdges) && success;
 	success = WriteFloat(kSilhouetteSection, L"ForegroundR", std::clamp(a_settings.foregroundColor[0], 0.0F, 1.0F)) && success;
 	success = WriteFloat(kSilhouetteSection, L"ForegroundG", std::clamp(a_settings.foregroundColor[1], 0.0F, 1.0F)) && success;
@@ -362,9 +521,87 @@ bool CDoF::SaveSilhouetteSettings(const SilhouetteSettings& a_settings)
 	success = WriteFloat(kSilhouetteSection, L"BackgroundR", std::clamp(a_settings.backgroundColor[0], 0.0F, 1.0F)) && success;
 	success = WriteFloat(kSilhouetteSection, L"BackgroundG", std::clamp(a_settings.backgroundColor[1], 0.0F, 1.0F)) && success;
 	success = WriteFloat(kSilhouetteSection, L"BackgroundB", std::clamp(a_settings.backgroundColor[2], 0.0F, 1.0F)) && success;
-	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
+	success = CommitIni(success);
 	if (success) {
 		spdlog::info("Silhouette settings saved");
+	}
+	return success;
+}
+
+CDoF::DepthFrameSettings CDoF::LoadDepthFrameSettings()
+{
+	const IniAccess iniAccess;
+	DepthFrameSettings result{};
+	result.enabled = ReadBool(kDepthFrameSection, L"Enabled", result.enabled);
+	result.style = std::min(ReadUInt(kDepthFrameSection, L"Style", result.style), 2U);
+	result.subjectBreakout = ReadBool(kDepthFrameSection, L"SubjectBreakout", result.subjectBreakout);
+    result.lockOnOnly = ReadBool(kDepthFrameSection, L"LockOnOnly", result.lockOnOnly);
+    result.breakoutEdges = std::min(ReadUInt(kDepthFrameSection, L"BreakoutEdges", result.breakoutEdges), 15U);
+    result.linkSubjectFocus = ReadBool(kDepthFrameSection, L"LinkSubjectFocus", result.linkSubjectFocus);
+	result.topBottomSize = Clamp(ReadFloat(kDepthFrameSection, L"TopBottomSize", result.topBottomSize), 0.0F, 0.45F);
+	result.sideSize = Clamp(ReadFloat(kDepthFrameSection, L"SideSize", result.sideSize), 0.0F, 0.45F);
+	result.opacity = Clamp(ReadFloat(kDepthFrameSection, L"Opacity", result.opacity), 0.0F, 1.0F);
+	result.subjectExpansion = Clamp(ReadFloat(kDepthFrameSection, L"SubjectExpansion", result.subjectExpansion), 0.0F, kSubjectExpansionMax);
+	result.frameTop = Clamp(ReadFloat(kDepthFrameSection, L"Top", result.frameTop), 0.0F, 0.45F);
+	result.frameBottom = Clamp(ReadFloat(kDepthFrameSection, L"Bottom", result.frameBottom), 0.0F, 0.45F);
+	result.frameLeft = Clamp(ReadFloat(kDepthFrameSection, L"Left", result.frameLeft), 0.0F, 0.45F);
+	result.frameRight = Clamp(ReadFloat(kDepthFrameSection, L"Right", result.frameRight), 0.0F, 0.45F);
+	result.subjectInsetPixels = Clamp(ReadFloat(kDepthFrameSection, L"SubjectInsetPixels", result.subjectInsetPixels), 0.0F, 4.0F);
+	result.frameRotationDegrees = Clamp(ReadFloat(kDepthFrameSection, L"FrameRotationDegrees", result.frameRotationDegrees), -180.0F, 180.0F);
+	result.edgeSoftness = Clamp(ReadFloat(kDepthFrameSection, L"EdgeSoftness", result.edgeSoftness), 0.0F, 0.03F);
+	result.color = {
+		Clamp(ReadFloat(kDepthFrameSection, L"ColorR", result.color[0]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kDepthFrameSection, L"ColorG", result.color[1]), 0.0F, 1.0F),
+		Clamp(ReadFloat(kDepthFrameSection, L"ColorB", result.color[2]), 0.0F, 1.0F)
+	};
+	return result;
+}
+
+bool CDoF::SaveDepthFrameSettings(const DepthFrameSettings& a_settings)
+{
+	const IniAccess iniAccess;
+	bool success = true;
+	success = WriteBool(kDepthFrameSection, L"Enabled", a_settings.enabled) && success;
+	success = WriteUInt(kDepthFrameSection, L"Style", std::min(a_settings.style, 2U)) && success;
+	success = WriteBool(kDepthFrameSection, L"SubjectBreakout", a_settings.subjectBreakout) && success;
+    success = WriteBool(kDepthFrameSection, L"LockOnOnly", a_settings.lockOnOnly) && success;
+    success = WriteUInt(kDepthFrameSection, L"BreakoutEdges", std::min(a_settings.breakoutEdges, 15U)) && success;
+    success = WriteBool(kDepthFrameSection, L"LinkSubjectFocus", a_settings.linkSubjectFocus) && success;
+	success = WriteFloat(kDepthFrameSection, L"TopBottomSize", std::clamp(a_settings.topBottomSize, 0.0F, 0.45F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"SideSize", std::clamp(a_settings.sideSize, 0.0F, 0.45F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"Opacity", std::clamp(a_settings.opacity, 0.0F, 1.0F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"SubjectExpansion", std::clamp(a_settings.subjectExpansion, 0.0F, kSubjectExpansionMax)) && success;
+	success = WriteFloat(kDepthFrameSection, L"Top", std::clamp(a_settings.frameTop, 0.0F, 0.45F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"Bottom", std::clamp(a_settings.frameBottom, 0.0F, 0.45F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"Left", std::clamp(a_settings.frameLeft, 0.0F, 0.45F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"Right", std::clamp(a_settings.frameRight, 0.0F, 0.45F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"SubjectInsetPixels", std::clamp(a_settings.subjectInsetPixels, 0.0F, 4.0F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"FrameRotationDegrees", std::clamp(a_settings.frameRotationDegrees, -180.0F, 180.0F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"EdgeSoftness", std::clamp(a_settings.edgeSoftness, 0.0F, 0.03F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"ColorR", std::clamp(a_settings.color[0], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"ColorG", std::clamp(a_settings.color[1], 0.0F, 1.0F)) && success;
+	success = WriteFloat(kDepthFrameSection, L"ColorB", std::clamp(a_settings.color[2], 0.0F, 1.0F)) && success;
+	return CommitIni(success);
+}
+
+CDoF::ExperimentalTransparencySettings CDoF::LoadExperimentalTransparencySettings()
+{
+	const IniAccess iniAccess;
+	ExperimentalTransparencySettings result{};
+	result.enabled = ReadBool(kExperimentalTransparencySection, L"Enabled", result.enabled);
+	result.mode = std::clamp(ReadUInt(kExperimentalTransparencySection, L"Mode", result.mode), 1U, 2U);
+	spdlog::info("Experimental transparency path loaded: enabled={}, mode={}", result.enabled, result.mode);
+	return result;
+}
+
+bool CDoF::SaveExperimentalTransparencySettings(const ExperimentalTransparencySettings& a_settings)
+{
+	const IniAccess iniAccess;
+	auto success = WriteBool(kExperimentalTransparencySection, L"Enabled", a_settings.enabled);
+	success = WriteUInt(kExperimentalTransparencySection, L"Mode", std::clamp(a_settings.mode, 1U, 2U)) && success;
+	success = CommitIni(success);
+	if (success) {
+		spdlog::info("Experimental transparency path saved: enabled={}, mode={}", a_settings.enabled, a_settings.mode);
 	}
 	return success;
 }
@@ -373,6 +610,7 @@ CDoF::TargetFocusSettings CDoF::LoadPresetTargetFocusSettings(
 	const wchar_t* a_section,
 	TargetFocusSettings a_defaults)
 {
+	const IniAccess iniAccess;
 	return SectionExists(a_section) ? LoadTargetFocusSection(a_section, a_defaults) : a_defaults;
 }
 
@@ -380,6 +618,7 @@ bool CDoF::SavePresetTargetFocusSettings(
 	const wchar_t* a_section,
 	const TargetFocusSettings& a_settings)
 {
+	const IniAccess iniAccess;
 	const auto success = SaveTargetFocusSection(a_section, a_settings);
 	if (success) {
 		spdlog::info("Preset target focus saved to INI section {}", std::filesystem::path(a_section).string());
@@ -389,6 +628,7 @@ bool CDoF::SavePresetTargetFocusSettings(
 
 CDoF::InterfaceSettings CDoF::LoadInterfaceSettings()
 {
+	const IniAccess iniAccess;
 	InterfaceSettings result{};
 	result.japanese = ReadBool(kInterfaceSection, L"Japanese", result.japanese);
 	return result;
@@ -396,13 +636,14 @@ CDoF::InterfaceSettings CDoF::LoadInterfaceSettings()
 
 bool CDoF::SaveInterfaceSettings(const InterfaceSettings& a_settings)
 {
-	const auto success = WriteBool(kInterfaceSection, L"Japanese", a_settings.japanese);
-	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
-	return success;
+	const IniAccess iniAccess;
+	auto success = WriteBool(kInterfaceSection, L"Japanese", a_settings.japanese);
+	return CommitIni(success);
 }
 
 CDoF::HotkeySettings CDoF::LoadHotkeySettings()
 {
+	const IniAccess iniAccess;
 	HotkeySettings result{};
 	result.toggleDoFKey = std::min(ReadUInt(kHotkeySection, L"ToggleDoF", result.toggleDoFKey), 0xFFu);
 	result.toggleSilhouetteKey = std::min(
@@ -413,12 +654,12 @@ CDoF::HotkeySettings CDoF::LoadHotkeySettings()
 
 bool CDoF::SaveHotkeySettings(const HotkeySettings& a_settings)
 {
+	const IniAccess iniAccess;
 	bool success = true;
 	success = WriteUInt(kHotkeySection, L"ToggleDoF", std::min(a_settings.toggleDoFKey, 0xFFu)) && success;
 	success = WriteUInt(
 		kHotkeySection,
 		L"ToggleSilhouette",
 		std::min(a_settings.toggleSilhouetteKey, 0xFFu)) && success;
-	WritePrivateProfileStringW(nullptr, nullptr, nullptr, kPath);
-	return success;
+	return CommitIni(success);
 }

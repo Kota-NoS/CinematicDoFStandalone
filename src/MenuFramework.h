@@ -14,12 +14,21 @@ namespace CDoF::MenuFramework
 		std::atomic<bool> blockUserInput{ true };
 	};
 
+	enum class FocusPickerResult
+	{
+		kUnavailable,
+		kActive,
+		kConfirmed,
+		kCancelled
+	};
+
 	using RenderCallback = void(__stdcall*)();
 
 	bool IsLoaded();
 	float GetVersion();
 	bool AddSectionItem(std::string_view a_section, std::string_view a_item, RenderCallback a_callback);
 	WindowInterface* AddWindow(RenderCallback a_callback, bool a_blockUserInput);
+	WindowInterface* GetMainWindow();
 
 	bool Begin(const char* a_name, bool* a_open = nullptr, int a_flags = 0);
 	void End();
@@ -30,6 +39,11 @@ namespace CDoF::MenuFramework
 	bool SliderFloat(const char* a_label, float* a_value, float a_min, float a_max, const char* a_format);
 	bool Button(const char* a_label);
 	bool SilhouetteIconButton(const char* a_id, bool a_active);
+	bool FocusPickerIconButton(const char* a_id);
+	bool TargetLockIconButton(const char* a_id, bool a_active, bool a_available);
+	bool DepthFrameIconButton(const char* a_id, bool a_active);
+	bool SneakIconButton(const char* a_id, bool a_active);
+	FocusPickerResult RenderFocusPicker(float& a_focusX, float& a_focusY);
 	void SameLine();
 	void ItemTooltip(const char* a_text);
 	bool PushFont(const char* a_name);

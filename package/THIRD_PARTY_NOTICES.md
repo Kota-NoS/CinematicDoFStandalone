@@ -64,3 +64,7 @@ Optional in-game controls interoperate dynamically with SKSE Menu Framework 3 th
 Noto Sans JP is bundled as `SKSE/Plugins/Fonts/MainFont.ttf` for the Japanese interface under the SIL Open Font License 1.1.
 
 - Complete license: `SKSE/Plugins/Fonts/NotoSansJP-OFL.txt`
+
+## SimpleIni
+
+INI persistence uses SimpleIni. See LICENSES/SimpleIni.txt for its license.

@@ -1,6 +1,6 @@
 set_xmakever("3.0.0")
 
-local plugin_version = "1.0.3"
+local plugin_version = "1.0.10"
 
 set_project("CinematicDoFStandalone")
 set_version(plugin_version)
@@ -26,6 +26,7 @@ target("CinematicDoFStandalone", function()
     set_kind("shared")
     set_targetdir("work/artifacts/" .. plugin_version)
     add_deps("commonlibsse-ng")
+    add_includedirs("lib/simpleini")
     add_rules("commonlibsse-ng.plugin", {
         name = "CinematicDoFStandalone",
         author = "kota (@kotaSkyrim) / developed with OpenAI Codex",

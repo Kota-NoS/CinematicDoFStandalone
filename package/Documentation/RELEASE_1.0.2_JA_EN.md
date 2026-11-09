@@ -13,6 +13,8 @@
 - シルエットはゲームの最終フレームバッファへ出力し、照明や天候の色が結果へ混ざりにくい純色出力にしました。
 - 「ピント固定」の「ピント距離」を0.1～2000mへ拡張しました。保存値とシェーダー入力は実メートル値のまま、UIだけを対数操作にして近距離の調整精度も保っています。
 - 既存INIとプリセットはそのまま読み込めます。旧上限150m以下の保存値は変換されず、見た目も変わりません。以前のテスト版で保存した2000m超の値は2000mへ制限されます。
+- DoFの距離判定をフル解像度のメイン深度へ統一しました。Community Shadersの有無やSAO・SSR・64-bit HDR設定による深度切り替えを行わず、透過衣装やアクセサリを同じ経路で処理します。
+- ピント境界をまたぐ色サンプルをCoCで制限し、有効な手前ボケ色がない画素を空のレイヤーとして扱います。これによりHDR0環境で人物周囲に生じていた太い黒膜を防ぎます。
 
 ### 実ゲームで確認済み
 
@@ -22,6 +24,7 @@
 - 純粋な黒／白のシルエット出力（Community Shadersあり／なし）
 - 0.1～2000mの固定ピント操作、遠景へのピント、保存／再読み込み
 - 空保護ON/OFF、月、近景ボケ、絞り形状ボケ、人物・草木による前景遮蔽との組み合わせ
+- HDR0／HDR1での透過衣装・ベール・透過アクセサリ、およびCommunity Shadersあり／なしのメイン深度経路
 
 ### 補足
 
@@ -40,6 +43,8 @@ Version 1.0.2 combines sky and moon protection, an independent Silhouette Photo 
 - Silhouette output is written to the game's final framebuffer so lighting and weather colour are less likely to contaminate the requested solid colours.
 - Extended Fixed Focus distance to 0.1–2000 m. Saved values and shader input remain ordinary metre values; only the UI response is logarithmic to preserve short-range precision.
 - Existing INIs and presets remain compatible. Values at or below the former 150 m limit are unchanged, while values above 2000 m saved by an earlier test build are clamped safely.
+- DoF distance classification now consistently uses the full-resolution main depth. Transparent outfits and accessories follow the same path with or without Community Shaders and regardless of SAO, SSR, or 64-bit HDR settings.
+- Colour samples across focus boundaries are limited by CoC compatibility. A near-blur pixel with no valid colour samples is treated as an empty layer, preventing the thick dark membrane previously seen around subjects in HDR0 configurations.
 
 ### Validated in game
 
@@ -49,6 +54,7 @@ Version 1.0.2 combines sky and moon protection, an independent Silhouette Photo 
 - Pure black-and-white silhouette output with and without Community Shaders
 - Fixed Focus operation across 0.1–2000 m, distant-scene focus, and save/reload
 - Sky-protection toggling, moons, near blur, aperture bokeh, and foreground occlusion by actors and vegetation
+- Transparent outfits, veils, and accessories under HDR0 and HDR1, plus the main-depth path with and without Community Shaders
 
 ### Note
 
