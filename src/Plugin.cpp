@@ -652,7 +652,7 @@ namespace
 extern "C" __declspec(dllexport) bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
 	SetupLogging();
-	spdlog::info("CinematicDoFStandalone loading - 1.0.10");
+	spdlog::info("CinematicDoFStandalone loading - 1.0.11");
 
 	try {
 		SKSE::Init(a_skse, false);

@@ -123,7 +123,8 @@ namespace
 		std::array<float, 4> bufferDimensions;
 		std::array<float, 4> inputRegion;
 		std::uint32_t reverseZ;
-		std::array<std::uint32_t, 3> padding;
+		std::array<float, 2> depthScale{ 1.0F, 1.0F };
+		std::uint32_t padding;
 	};
 	static_assert(sizeof(SharedConstants) == 64);
 
@@ -511,6 +512,18 @@ void CDoF::DoFRenderer::CapturePreOpaqueDepth()
 	}
 
 	context->CopyResource(preOpaqueDepthTexture_.Get(), sourceTexture.Get());
+	// The bound viewport can belong to an earlier pass, even at Native AA.
+	// Use the scene's resolution ratios when deciding whether depth coordinates need scaling.
+	preOpaqueDepthScale_ = { 1.0F, 1.0F };
+	if (const auto* graphicsState = RE::BSGraphics::State::GetSingleton()) {
+		const auto& state = graphicsState->GetRuntimeData();
+		const float widthRatio = state.dynamicResolutionWidthRatio;
+		const float heightRatio = state.dynamicResolutionHeightRatio;
+		if (!state.dynamicResolutionLock && widthRatio > 0.0F && widthRatio <= 1.0F &&
+			heightRatio > 0.0F && heightRatio <= 1.0F) {
+			preOpaqueDepthScale_ = { widthRatio, heightRatio };
+		}
+	}
 	preOpaqueDepthValid_ = true;
 	if (!loggedPreOpaqueDepthCapture_) {
 		loggedPreOpaqueDepthCapture_ = true;
@@ -2188,7 +2201,18 @@ void CDoF::DoFRenderer::ApplyBeforePostProcessing()
 		}
 		D3D11_TEXTURE2D_DESC inputDescription{};
 		mainTarget.texture->GetDesc(&inputDescription);
-		const auto renderArea = GetActiveRenderArea(context, inputDescription);
+		auto renderArea = GetActiveRenderArea(context, inputDescription);
+		const auto* graphicsState = RE::BSGraphics::State::GetSingleton();
+		// CS 1.9.1 leaves the half-resolution underwater-mask viewport bound
+		// after upscaling the full-resolution scene color and main depth.
+		// The DLSS resolve unbinds the RTV but leaves that viewport intact.
+		const bool afterUpscale = graphicsState && graphicsState->GetRuntimeData().dynamicResolutionLock &&
+			(!currentRTV || currentRTV.Get() == rendererData.renderTargets[RE::RENDER_TARGETS::kUNDERWATER_MASK].RTV) &&
+			inputDescription.Width == graphicsState->screenWidth &&
+			inputDescription.Height == graphicsState->screenHeight;
+		if (afterUpscale) {
+			renderArea = { 0U, 0U, inputDescription.Width, inputDescription.Height };
+		}
 		// The optional transparency modes are dual-depth experiments: the private
 		// pre-opaque snapshot supplies the farther background depth used by the ordinary DoF path, while the current
 		// main depth supplies the nearer transparent-subject surface used by the
@@ -2200,19 +2224,20 @@ void CDoF::DoFRenderer::ApplyBeforePostProcessing()
 		// another renderer's later use of that shared target.
 		if (experimentalTransparencySettings_.enabled) {
 			auto experimentalDepth = preOpaqueDepthValid_ ? preOpaqueDepthSRV_.Get() : nullptr;
-			if (IsCompatibleDepth(experimentalDepth, inputDescription)) {
+			const bool hairDepthActive = IsCompatibleDepth(experimentalDepth, inputDescription);
+			if (hairDepthActive) {
 				depth = experimentalDepth;
-				if (!loggedExperimentalTransparencyDepth_) {
-					loggedExperimentalTransparencyDepth_ = true;
-					spdlog::info(
-						"Hair blending mode {} enabled with private pre-opaque depth plus current main-depth protection",
-						experimentalTransparencySettings_.mode);
-				}
-			} else if (!loggedExperimentalTransparencyDepthUnavailable_) {
-				loggedExperimentalTransparencyDepthUnavailable_ = true;
-				spdlog::warn(
-					"Hair blending requested, but private pre-opaque depth is unavailable or incompatible; preserving completed main-depth rendering");
 			}
+			if (lastHairDepthActive_ != hairDepthActive && hairDepthDiagnosticCount_ < 32) {
+				lastHairDepthActive_ = hairDepthActive;
+				++hairDepthDiagnosticCount_;
+				spdlog::info(
+					"Hair depth diagnostic: active={}, captured={}, capture scale={:.4f}x{:.4f}, after upscale={}, render={}x{}",
+					hairDepthActive, preOpaqueDepthValid_, preOpaqueDepthScale_[0], preOpaqueDepthScale_[1], afterUpscale,
+					renderArea.width, renderArea.height);
+			}
+		} else {
+			lastHairDepthActive_.reset();
 		}
 		if (!depthPathChecked_) {
 			const auto runtimeSaoEnabled = ReadDisplayBool("bSAOEnable:Display");
@@ -2354,6 +2379,7 @@ void CDoF::DoFRenderer::ApplyBeforePostProcessing()
 			effectiveSettings,
 			targetGuard,
 			targetNearFocusMinimumMeters,
+			afterUpscale && depth != mainDepth ? preOpaqueDepthScale_ : std::array<float, 2>{ 1.0F, 1.0F },
 			inputDescription.Width,
 			inputDescription.Height,
 			renderArea.left,
@@ -2396,6 +2422,7 @@ void CDoF::DoFRenderer::Dispatch(
 	const Settings& a_settings,
 	const TargetFocusSample* a_targetGuard,
 	float a_targetNearFocusMinimumMeters,
+	const std::array<float, 2>& a_depthScale,
 	std::uint32_t a_inputWidth,
 	std::uint32_t a_inputHeight,
 	std::uint32_t a_renderLeft,
@@ -2480,6 +2507,7 @@ void CDoF::DoFRenderer::Dispatch(
 			1.0F / static_cast<float>(a_inputWidth),
 			1.0F / static_cast<float>(a_inputHeight) },
 		.reverseZ = reverseZDepth_ ? 1U : 0U,
+		.depthScale = a_depthScale,
 		.padding = {}
 	};
 

@@ -11,7 +11,8 @@ namespace SharedData
 		// zw: reciprocal dimensions of the full input allocation.
 		float4 InputRegion;
 		uint ReverseZ;
-		float3 DepthConventionPadding;
+		float2 DepthScale;
+		float DepthConventionPadding;
 	};
 
 	float ToStandardDepth(float depth)

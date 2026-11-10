@@ -172,6 +172,7 @@ namespace CDoF
 			const Settings& a_settings,
 			const TargetFocusSample* a_targetGuard,
 			float a_targetNearFocusMinimumMeters,
+			const std::array<float, 2>& a_depthScale,
 			std::uint32_t a_inputWidth,
 			std::uint32_t a_inputHeight,
 			std::uint32_t a_renderLeft,
@@ -290,11 +291,12 @@ namespace CDoF
 		bool useStandaloneNearFocusAssist_{ false };
 		bool loggedTargetGuard_{ false };
 		bool loggedTargetNearFocusAssist_{ false };
-		bool loggedExperimentalTransparencyDepth_{ false };
-		bool loggedExperimentalTransparencyDepthUnavailable_{ false };
+		std::optional<bool> lastHairDepthActive_;
+		unsigned hairDepthDiagnosticCount_{};
 		bool loggedPreOpaqueDepthCapture_{ false };
 		bool loggedDepthFrameSubjectStencilSnapshot_{ false };
 		bool preOpaqueDepthValid_{ false };
+		std::array<float, 2> preOpaqueDepthScale_{ 1.0F, 1.0F };
 		bool depthFrameSubjectStencilValid_{ false };
 		bool loggedRenderAreaDiagnostics_{ false };
 		bool depthConventionInitialized_{ false };

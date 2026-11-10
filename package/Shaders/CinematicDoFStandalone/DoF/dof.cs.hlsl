@@ -303,9 +303,24 @@ struct DiscBlurInfo
 	float highlightBoostFactor;
 };
 
+float2 GetPrivateDepthScale()
+{
+	// Older DLLs leave these constant-buffer slots at zero.
+	return all(SharedData::DepthScale > 0.0f) ? SharedData::DepthScale : float2(1.0f, 1.0f);
+}
+
 float GetDepth(float2 uv)
 {
-	float depth = DepthTexture.SampleLevel(LinearSampler, GetInputUV(uv), 0);
+	float2 depthUV = GetInputUV(uv);
+	float2 scale = GetPrivateDepthScale();
+	if (any(scale != 1.0f))
+	{
+		float2 halfTexel = 0.5f * SharedData::InputRegion.zw;
+		float2 lastCentre = floor(scale / SharedData::InputRegion.zw + 0.5f) *
+			SharedData::InputRegion.zw - halfTexel;
+		depthUV = clamp(depthUV * scale, halfTexel, max(halfTexel, lastCentre));
+	}
+	float depth = DepthTexture.SampleLevel(LinearSampler, depthUV, 0);
 	depth = SharedData::GetScreenDepth(depth) * GAME_UNIT_TO_M * 0.001f;  // in KM
 	return max(depth, 1e-6);
 }
@@ -323,7 +338,7 @@ float GetDualDepthTransparencyCandidate(uint2 renderPixel)
 	if (SharedData::IsClearDepth(rawMainDepth))
 		return 0.0f;
 
-	float rawFallbackDepth = DepthTexture[inputPixel];
+	float rawFallbackDepth = DepthTexture[uint2((float2(inputPixel) + 0.5f) * GetPrivateDepthScale())];
 	float fallbackDepth = max(SharedData::GetScreenDepth(rawFallbackDepth) * GAME_UNIT_TO_M * 0.001f, 1e-6f);
 	float mainDepth = max(SharedData::GetScreenDepth(rawMainDepth) * GAME_UNIT_TO_M * 0.001f, 1e-6f);
 	float separation = fallbackDepth - mainDepth;

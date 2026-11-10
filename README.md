@@ -1,6 +1,6 @@
-# CinematicDoFStandalone 1.0.10
+# CinematicDoFStandalone 1.0.11
 
-> **1.0.10** adds TDM lock-on frame animation, per-edge breakout, HDR frame compatibility, and expanded diffraction controls. See Documentation/RELEASE_1.0.10_JA_EN.md.
+> **1.0.11** fixes DoF coverage and hair blending with sub-native upscaling. See Documentation/RELEASE_1.0.11_JA_EN.md.
 
 ## 日本語
 
