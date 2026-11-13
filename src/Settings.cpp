@@ -528,59 +528,65 @@ bool CDoF::SaveSilhouetteSettings(const SilhouetteSettings& a_settings)
 	return success;
 }
 
-CDoF::DepthFrameSettings CDoF::LoadDepthFrameSettings()
+CDoF::DepthFrameSettings CDoF::LoadDepthFrameSettings(const wchar_t* a_section, DepthFrameSettings a_defaults)
 {
 	const IniAccess iniAccess;
-	DepthFrameSettings result{};
-	result.enabled = ReadBool(kDepthFrameSection, L"Enabled", result.enabled);
-	result.style = std::min(ReadUInt(kDepthFrameSection, L"Style", result.style), 2U);
-	result.subjectBreakout = ReadBool(kDepthFrameSection, L"SubjectBreakout", result.subjectBreakout);
-    result.lockOnOnly = ReadBool(kDepthFrameSection, L"LockOnOnly", result.lockOnOnly);
-    result.breakoutEdges = std::min(ReadUInt(kDepthFrameSection, L"BreakoutEdges", result.breakoutEdges), 15U);
-    result.linkSubjectFocus = ReadBool(kDepthFrameSection, L"LinkSubjectFocus", result.linkSubjectFocus);
-	result.topBottomSize = Clamp(ReadFloat(kDepthFrameSection, L"TopBottomSize", result.topBottomSize), 0.0F, 0.45F);
-	result.sideSize = Clamp(ReadFloat(kDepthFrameSection, L"SideSize", result.sideSize), 0.0F, 0.45F);
-	result.opacity = Clamp(ReadFloat(kDepthFrameSection, L"Opacity", result.opacity), 0.0F, 1.0F);
-	result.subjectExpansion = Clamp(ReadFloat(kDepthFrameSection, L"SubjectExpansion", result.subjectExpansion), 0.0F, kSubjectExpansionMax);
-	result.frameTop = Clamp(ReadFloat(kDepthFrameSection, L"Top", result.frameTop), 0.0F, 0.45F);
-	result.frameBottom = Clamp(ReadFloat(kDepthFrameSection, L"Bottom", result.frameBottom), 0.0F, 0.45F);
-	result.frameLeft = Clamp(ReadFloat(kDepthFrameSection, L"Left", result.frameLeft), 0.0F, 0.45F);
-	result.frameRight = Clamp(ReadFloat(kDepthFrameSection, L"Right", result.frameRight), 0.0F, 0.45F);
-	result.subjectInsetPixels = Clamp(ReadFloat(kDepthFrameSection, L"SubjectInsetPixels", result.subjectInsetPixels), 0.0F, 4.0F);
-	result.frameRotationDegrees = Clamp(ReadFloat(kDepthFrameSection, L"FrameRotationDegrees", result.frameRotationDegrees), -180.0F, 180.0F);
-	result.edgeSoftness = Clamp(ReadFloat(kDepthFrameSection, L"EdgeSoftness", result.edgeSoftness), 0.0F, 0.03F);
+	DepthFrameSettings result = a_defaults;
+	result.enabled = ReadBool(a_section, L"Enabled", result.enabled);
+	result.style = std::min(ReadUInt(a_section, L"Style", result.style), 2U);
+	result.subjectBreakout = ReadBool(a_section, L"SubjectBreakout", result.subjectBreakout);
+    result.lockOnOnly = ReadBool(a_section, L"LockOnOnly", result.lockOnOnly);
+    result.dialogueOnly = ReadBool(a_section, L"DialogueOnly", result.dialogueOnly);
+    result.photoMode = ReadBool(a_section, L"PhotoMode", result.photoMode);
+    result.killMoveOnly = ReadBool(a_section, L"KillMoveOnly", result.killMoveOnly);
+    result.breakoutEdges = std::min(ReadUInt(a_section, L"BreakoutEdges", result.breakoutEdges), 15U);
+    result.linkSubjectFocus = ReadBool(a_section, L"LinkSubjectFocus", result.linkSubjectFocus);
+	result.topBottomSize = Clamp(ReadFloat(a_section, L"TopBottomSize", result.topBottomSize), 0.0F, 0.45F);
+	result.sideSize = Clamp(ReadFloat(a_section, L"SideSize", result.sideSize), 0.0F, 0.45F);
+	result.opacity = Clamp(ReadFloat(a_section, L"Opacity", result.opacity), 0.0F, 1.0F);
+	result.subjectExpansion = Clamp(ReadFloat(a_section, L"SubjectExpansion", result.subjectExpansion), 0.0F, kSubjectExpansionMax);
+	result.frameTop = Clamp(ReadFloat(a_section, L"Top", result.frameTop), 0.0F, 0.45F);
+	result.frameBottom = Clamp(ReadFloat(a_section, L"Bottom", result.frameBottom), 0.0F, 0.45F);
+	result.frameLeft = Clamp(ReadFloat(a_section, L"Left", result.frameLeft), 0.0F, 0.45F);
+	result.frameRight = Clamp(ReadFloat(a_section, L"Right", result.frameRight), 0.0F, 0.45F);
+	result.subjectInsetPixels = Clamp(ReadFloat(a_section, L"SubjectInsetPixels", result.subjectInsetPixels), 0.0F, 4.0F);
+	result.frameRotationDegrees = Clamp(ReadFloat(a_section, L"FrameRotationDegrees", result.frameRotationDegrees), -180.0F, 180.0F);
+	result.edgeSoftness = Clamp(ReadFloat(a_section, L"EdgeSoftness", result.edgeSoftness), 0.0F, 0.03F);
 	result.color = {
-		Clamp(ReadFloat(kDepthFrameSection, L"ColorR", result.color[0]), 0.0F, 1.0F),
-		Clamp(ReadFloat(kDepthFrameSection, L"ColorG", result.color[1]), 0.0F, 1.0F),
-		Clamp(ReadFloat(kDepthFrameSection, L"ColorB", result.color[2]), 0.0F, 1.0F)
+		Clamp(ReadFloat(a_section, L"ColorR", result.color[0]), 0.0F, 1.0F),
+		Clamp(ReadFloat(a_section, L"ColorG", result.color[1]), 0.0F, 1.0F),
+		Clamp(ReadFloat(a_section, L"ColorB", result.color[2]), 0.0F, 1.0F)
 	};
 	return result;
 }
 
-bool CDoF::SaveDepthFrameSettings(const DepthFrameSettings& a_settings)
+bool CDoF::SaveDepthFrameSettings(const DepthFrameSettings& a_settings, const wchar_t* a_section)
 {
 	const IniAccess iniAccess;
 	bool success = true;
-	success = WriteBool(kDepthFrameSection, L"Enabled", a_settings.enabled) && success;
-	success = WriteUInt(kDepthFrameSection, L"Style", std::min(a_settings.style, 2U)) && success;
-	success = WriteBool(kDepthFrameSection, L"SubjectBreakout", a_settings.subjectBreakout) && success;
-    success = WriteBool(kDepthFrameSection, L"LockOnOnly", a_settings.lockOnOnly) && success;
-    success = WriteUInt(kDepthFrameSection, L"BreakoutEdges", std::min(a_settings.breakoutEdges, 15U)) && success;
-    success = WriteBool(kDepthFrameSection, L"LinkSubjectFocus", a_settings.linkSubjectFocus) && success;
-	success = WriteFloat(kDepthFrameSection, L"TopBottomSize", std::clamp(a_settings.topBottomSize, 0.0F, 0.45F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"SideSize", std::clamp(a_settings.sideSize, 0.0F, 0.45F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"Opacity", std::clamp(a_settings.opacity, 0.0F, 1.0F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"SubjectExpansion", std::clamp(a_settings.subjectExpansion, 0.0F, kSubjectExpansionMax)) && success;
-	success = WriteFloat(kDepthFrameSection, L"Top", std::clamp(a_settings.frameTop, 0.0F, 0.45F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"Bottom", std::clamp(a_settings.frameBottom, 0.0F, 0.45F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"Left", std::clamp(a_settings.frameLeft, 0.0F, 0.45F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"Right", std::clamp(a_settings.frameRight, 0.0F, 0.45F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"SubjectInsetPixels", std::clamp(a_settings.subjectInsetPixels, 0.0F, 4.0F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"FrameRotationDegrees", std::clamp(a_settings.frameRotationDegrees, -180.0F, 180.0F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"EdgeSoftness", std::clamp(a_settings.edgeSoftness, 0.0F, 0.03F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"ColorR", std::clamp(a_settings.color[0], 0.0F, 1.0F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"ColorG", std::clamp(a_settings.color[1], 0.0F, 1.0F)) && success;
-	success = WriteFloat(kDepthFrameSection, L"ColorB", std::clamp(a_settings.color[2], 0.0F, 1.0F)) && success;
+	success = WriteBool(a_section, L"Enabled", a_settings.enabled) && success;
+	success = WriteUInt(a_section, L"Style", std::min(a_settings.style, 2U)) && success;
+	success = WriteBool(a_section, L"SubjectBreakout", a_settings.subjectBreakout) && success;
+    success = WriteBool(a_section, L"LockOnOnly", a_settings.lockOnOnly) && success;
+    success = WriteBool(a_section, L"DialogueOnly", a_settings.dialogueOnly) && success;
+    success = WriteBool(a_section, L"PhotoMode", a_settings.photoMode) && success;
+    success = WriteBool(a_section, L"KillMoveOnly", a_settings.killMoveOnly) && success;
+    success = WriteUInt(a_section, L"BreakoutEdges", std::min(a_settings.breakoutEdges, 15U)) && success;
+    success = WriteBool(a_section, L"LinkSubjectFocus", a_settings.linkSubjectFocus) && success;
+	success = WriteFloat(a_section, L"TopBottomSize", std::clamp(a_settings.topBottomSize, 0.0F, 0.45F)) && success;
+	success = WriteFloat(a_section, L"SideSize", std::clamp(a_settings.sideSize, 0.0F, 0.45F)) && success;
+	success = WriteFloat(a_section, L"Opacity", std::clamp(a_settings.opacity, 0.0F, 1.0F)) && success;
+	success = WriteFloat(a_section, L"SubjectExpansion", std::clamp(a_settings.subjectExpansion, 0.0F, kSubjectExpansionMax)) && success;
+	success = WriteFloat(a_section, L"Top", std::clamp(a_settings.frameTop, 0.0F, 0.45F)) && success;
+	success = WriteFloat(a_section, L"Bottom", std::clamp(a_settings.frameBottom, 0.0F, 0.45F)) && success;
+	success = WriteFloat(a_section, L"Left", std::clamp(a_settings.frameLeft, 0.0F, 0.45F)) && success;
+	success = WriteFloat(a_section, L"Right", std::clamp(a_settings.frameRight, 0.0F, 0.45F)) && success;
+	success = WriteFloat(a_section, L"SubjectInsetPixels", std::clamp(a_settings.subjectInsetPixels, 0.0F, 4.0F)) && success;
+	success = WriteFloat(a_section, L"FrameRotationDegrees", std::clamp(a_settings.frameRotationDegrees, -180.0F, 180.0F)) && success;
+	success = WriteFloat(a_section, L"EdgeSoftness", std::clamp(a_settings.edgeSoftness, 0.0F, 0.03F)) && success;
+	success = WriteFloat(a_section, L"ColorR", std::clamp(a_settings.color[0], 0.0F, 1.0F)) && success;
+	success = WriteFloat(a_section, L"ColorG", std::clamp(a_settings.color[1], 0.0F, 1.0F)) && success;
+	success = WriteFloat(a_section, L"ColorB", std::clamp(a_settings.color[2], 0.0F, 1.0F)) && success;
 	return CommitIni(success);
 }
 

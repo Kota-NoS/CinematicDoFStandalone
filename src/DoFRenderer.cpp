@@ -158,6 +158,16 @@ namespace
 	};
 	static_assert(sizeof(DepthFrameConstants) == 352);
 
+	// CommonLibSSE-NG v7.1.0 moves the BSGraphics::State runtime data
+	// from 0x60 to 0x70 on Skyrim 1.7.99 and later.
+	const auto& GetGraphicsRuntimeData(const RE::BSGraphics::State& state)
+	{
+		if (REL::Module::get().version() >= REL::Version{ 1, 7, 99, 0 }) {
+			return REL::RelocateMember<RE::BSGraphics::State::RUNTIME_DATA>(std::addressof(state), 0x70);
+		}
+		return state.GetRuntimeData();
+	}
+
 	struct RenderArea
 	{
 		std::uint32_t left{};
@@ -326,8 +336,11 @@ namespace
     bool IsDepthFrameVisible(const CDoF::DepthFrameSettings& settings)
     {
         if (!settings.enabled) return false;
-        if (!settings.lockOnOnly) return true;
-        return CDoF::SubjectMask::IsTargetLocked();
+        if (!settings.lockOnOnly && !settings.killMoveOnly && !settings.dialogueOnly) return true;
+        const auto* player = RE::PlayerCharacter::GetSingleton();
+        return (settings.lockOnOnly && CDoF::SubjectMask::IsTargetLocked()) ||
+            (settings.killMoveOnly && player && player->IsInKillMove()) ||
+            (settings.dialogueOnly && RE::UI::GetSingleton() && RE::UI::GetSingleton()->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
     }
 
 	std::optional<RE::NiPoint3> GetFocusPosition(const RE::NiPointer<RE::TESObjectREFR>& a_target)
@@ -377,7 +390,7 @@ void CDoF::DoFRenderer::SetDepthFrameSettings(DepthFrameSettings a_settings)
 {
 	subjectDrawAuditEnabled_.store(a_settings.enabled && a_settings.subjectBreakout, std::memory_order_relaxed);
 	SubjectMask::SetEnabled(a_settings.enabled && a_settings.subjectBreakout && a_settings.breakoutEdges != 0U,
-        a_settings.lockOnOnly);
+        a_settings.lockOnOnly && !a_settings.killMoveOnly && !a_settings.dialogueOnly);
 	depthFrameStencilCaptureEnabled_.store(
 		false, // Test18: projected depth mask requires no stencil capture.
 		std::memory_order_relaxed);
@@ -516,7 +529,7 @@ void CDoF::DoFRenderer::CapturePreOpaqueDepth()
 	// Use the scene's resolution ratios when deciding whether depth coordinates need scaling.
 	preOpaqueDepthScale_ = { 1.0F, 1.0F };
 	if (const auto* graphicsState = RE::BSGraphics::State::GetSingleton()) {
-		const auto& state = graphicsState->GetRuntimeData();
+		const auto& state = GetGraphicsRuntimeData(*graphicsState);
 		const float widthRatio = state.dynamicResolutionWidthRatio;
 		const float heightRatio = state.dynamicResolutionHeightRatio;
 		if (!state.dynamicResolutionLock && widthRatio > 0.0F && widthRatio <= 1.0F &&
@@ -1891,7 +1904,7 @@ void CDoF::DoFRenderer::ApplyAfterPostProcessing(RE::RENDER_TARGET a_outputTarge
 		lockOnFrameProgress_ = 0.0F;
 		return;
 	}
-	if (!depthFrameSettings_.lockOnOnly) {
+	if (!depthFrameSettings_.lockOnOnly && !depthFrameSettings_.killMoveOnly && !depthFrameSettings_.dialogueOnly) {
 		lockOnFrameProgress_ = 0.0F;
 		ApplyDepthFrame(a_outputTarget, depthFrameSettings_);
 		return;
@@ -1900,7 +1913,7 @@ void CDoF::DoFRenderer::ApplyAfterPostProcessing(RE::RENDER_TARGET a_outputTarge
 	constexpr std::chrono::duration<float> slideDuration{ 0.22F };
 	const float step = previousUpdate == decltype(lockOnFrameUpdatedAt_){} ?
 		0.0F : (now - previousUpdate) / slideDuration;
-	const float direction = SubjectMask::IsTargetLocked() ? 1.0F : -1.0F;
+	const float direction = IsDepthFrameVisible(depthFrameSettings_) ? 1.0F : -1.0F;
 	lockOnFrameProgress_ = std::clamp(lockOnFrameProgress_ + step * direction, 0.0F, 1.0F);
 	if (lockOnFrameProgress_ <= 0.0F) {
 		return;
@@ -2206,7 +2219,7 @@ void CDoF::DoFRenderer::ApplyBeforePostProcessing()
 		// CS 1.9.1 leaves the half-resolution underwater-mask viewport bound
 		// after upscaling the full-resolution scene color and main depth.
 		// The DLSS resolve unbinds the RTV but leaves that viewport intact.
-		const bool afterUpscale = graphicsState && graphicsState->GetRuntimeData().dynamicResolutionLock &&
+		const bool afterUpscale = graphicsState && GetGraphicsRuntimeData(*graphicsState).dynamicResolutionLock &&
 			(!currentRTV || currentRTV.Get() == rendererData.renderTargets[RE::RENDER_TARGETS::kUNDERWATER_MASK].RTV) &&
 			inputDescription.Width == graphicsState->screenWidth &&
 			inputDescription.Height == graphicsState->screenHeight;

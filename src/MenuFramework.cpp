@@ -99,11 +99,19 @@ void CDoF::MenuFramework::SeparatorText(const char* a_text)
 	}
 }
 
-bool CDoF::MenuFramework::Checkbox(const char* a_label, bool* a_value)
+bool CDoF::MenuFramework::Checkbox(const char* a_label, bool* a_value, bool a_highlight)
 {
 	using Function = bool (*)(const char*, bool*);
 	const auto function = Resolve<Function>("igCheckbox");
-	return function ? function(a_label, a_value) : false;
+	using PushColor = void (*)(int, std::uint32_t);
+	using PopColor = void (*)(int);
+	const auto pushColor = Resolve<PushColor>("igPushStyleColor_U32");
+	const auto popColor = Resolve<PopColor>("igPopStyleColor");
+	const bool highlighted = a_highlight && pushColor && popColor;
+	if (highlighted) { pushColor(0, 0xFF40B8FFU); }
+	const bool changed = function ? function(a_label, a_value) : false;
+	if (highlighted) { popColor(1); }
+	return changed;
 }
 
 bool CDoF::MenuFramework::ColorEdit3(const char* a_label, float* a_color)

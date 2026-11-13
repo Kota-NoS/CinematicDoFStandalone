@@ -18,6 +18,7 @@ namespace
 	ModeSettings modeSettings{};
 	SilhouetteSettings silhouetteSettings{};
 	DepthFrameSettings depthFrameSettings{};
+	DepthFrameSettings photoFrameSettings{};
 	ExperimentalTransparencySettings experimentalTransparencySettings{};
 	InterfaceSettings interfaceSettings{};
 	HotkeySettings hotkeySettings{};
@@ -88,10 +89,11 @@ namespace
 		const char* a_japaneseLabel,
 		bool* a_value,
 		const char* a_englishHelp,
-		const char* a_japaneseHelp)
+		const char* a_japaneseHelp,
+		bool a_highlight = false)
 	{
 		const auto label = std::string(Localized(a_englishLabel, a_japaneseLabel));
-		const auto changed = MenuFramework::Checkbox(label.c_str(), a_value);
+		const auto changed = MenuFramework::Checkbox(label.c_str(), a_value, a_highlight);
 		MenuFramework::ItemTooltip(Localized(a_englishHelp, a_japaneseHelp));
 		return changed;
 	}
@@ -294,12 +296,32 @@ namespace
 
 	void ApplyTargetFocus();
 
+	DepthFrameSettings ActiveDepthFrameSettings()
+	{
+		if (!depthFrameSettings.photoMode) {
+			return depthFrameSettings;
+		}
+		auto settings = photoFrameSettings;
+		settings.enabled = depthFrameSettings.enabled;
+		settings.lockOnOnly = false;
+		settings.killMoveOnly = false;
+		settings.dialogueOnly = false;
+		return settings;
+	}
+
+	bool SaveAllDepthFrameSettings()
+	{
+		const bool normalSaved = SaveDepthFrameSettings(depthFrameSettings);
+		const bool photoSaved = SaveDepthFrameSettings(photoFrameSettings, L"DepthFrame.Photo");
+		return normalSaved && photoSaved;
+	}
+
 	void ApplyLive()
 	{
 		DoFRenderer::GetSingleton().SetSettings(uiSettings);
 		DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
 		DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
-		DoFRenderer::GetSingleton().SetDepthFrameSettings(depthFrameSettings);
+		DoFRenderer::GetSingleton().SetDepthFrameSettings(ActiveDepthFrameSettings());
 		ApplyTargetFocus();
 		SetStatus("Live values changed (not saved).", "現在値を変更しました（INI未保存）。");
 	}
@@ -1394,7 +1416,7 @@ namespace
 				SaveSneakFocusSettings(sneakFocusSettings) &&
 				SaveModeSettings(modeSettings) &&
 				SaveSilhouetteSettings(silhouetteSettings) &&
-				SaveDepthFrameSettings(depthFrameSettings) &&
+				SaveAllDepthFrameSettings() &&
 				SaveExperimentalTransparencySettings(experimentalTransparencySettings) &&
 				SaveInterfaceSettings(interfaceSettings)) {
 				SetStatus("Saved startup settings to CinematicDoFStandalone.ini.", "次回起動設定をCinematicDoFStandalone.iniへ保存しました。");
@@ -1413,7 +1435,10 @@ namespace
 			sneakFocusSettings = LoadSneakFocusSettings();
 			modeSettings = LoadModeSettings();
 			silhouetteSettings = LoadSilhouetteSettings();
-				depthFrameSettings = LoadDepthFrameSettings();
+			depthFrameSettings = LoadDepthFrameSettings();
+			auto photoDefaults = depthFrameSettings;
+	photoDefaults.subjectBreakout = true;
+	photoFrameSettings = LoadDepthFrameSettings(L"DepthFrame.Photo", photoDefaults);
 			experimentalTransparencySettings = LoadExperimentalTransparencySettings();
 			interfaceSettings = LoadInterfaceSettings();
 			hotkeySettings = LoadHotkeySettings();
@@ -1423,7 +1448,7 @@ namespace
 			DoFRenderer::GetSingleton().SetSettings(uiSettings);
 			DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
 			DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
-				DoFRenderer::GetSingleton().SetDepthFrameSettings(depthFrameSettings);
+				DoFRenderer::GetSingleton().SetDepthFrameSettings(ActiveDepthFrameSettings());
 			ApplyExperimentalTransparency();
 			ApplyTargetFocus();
 			ApplyTDMFocus();
@@ -1814,47 +1839,56 @@ namespace
 			"Adds a photographic matte after post-processing. A tracked actor can remain visible in front of the matte.",
 			"ポスト処理後に撮影用の枠を重ねます。追跡中の人物だけを枠より手前へ残せます。");
         MenuFramework::SameLine();
-        changed |= CheckboxWithHelp("Lock-on Only", "ロックオン時のみ", &depthFrameSettings.lockOnOnly,
-            "Show the depth frame only while True Directional Movement has a target lock.",
-            "True Directional Movement でロックオンしている間だけ深度フレームを表示します。");
-        if (depthFrameSettings.lockOnOnly) {
-            MenuFramework::SameLine();
-            MenuFramework::Text(!TDMIntegration::IsAvailable() ? Localized("TDM: Not detected", "TDM：未検出") :
-                SubjectMask::IsTargetLocked() ?
-                Localized("Locked on", "ロックオン中") : Localized("Unlocked", "ロックオンなし"));
-        }
+        changed |= CheckboxWithHelp("Photography Mode", "撮影モード", &depthFrameSettings.photoMode,
+            "Always display the enabled frame using separate photography settings.",
+            "表示条件を無視し、撮影専用の枠設定で表示します。オフにすると演出用の設定へ戻ります。", depthFrameSettings.photoMode);
+        changed |= CheckboxWithHelp("During Target Lock", "ロックオン時", &depthFrameSettings.lockOnOnly,
+            "Show the frame during TDM target lock. Any enabled trigger can keep it visible.",
+            "TDMロックオン中に表示します。いずれかの有効な条件を満たす間は枠を維持します。");
+        MenuFramework::SameLine();
+        changed |= CheckboxWithHelp("During Killmove", "キルムーブ時", &depthFrameSettings.killMoveOnly,
+            "Show the frame while the player is in a killmove.",
+            "プレイヤーのキルムーブ中に表示します。");
+        MenuFramework::SameLine();
+        changed |= CheckboxWithHelp("During Dialogue", "会話時", &depthFrameSettings.dialogueOnly,
+            "Show the frame while the dialogue menu is open. With all triggers off, it stays visible.",
+            "会話メニューが開いている間に表示します。条件がすべてオフなら常時表示します。");
+        MenuFramework::Text(Localized(
+            depthFrameSettings.photoMode ? "Editing photography frame" : "Editing cinematic frame",
+            depthFrameSettings.photoMode ? "撮影用の枠を編集中" : "演出用の枠を編集中"));
+        auto& frameAppearance = depthFrameSettings.photoMode ? photoFrameSettings : depthFrameSettings;
 		MenuFramework::Text(Localized("Frame Style", "フレーム形状"));
 		MenuFramework::SameLine();
 		if (ChoiceButton(
-				"Letterbox", "上下", "DepthFrameLetterbox", depthFrameSettings.style == 0U,
+				"Letterbox", "上下", "DepthFrameLetterbox", frameAppearance.style == 0U,
 				"Draws only top and bottom bars.", "上下だけに帯を描画します。")) {
-			depthFrameSettings.style = 0U;
+			frameAppearance.style = 0U;
 			changed = true;
 		}
 		MenuFramework::SameLine();
 		if (ChoiceButton(
-				"Four Sides", "四辺", "DepthFrameFourSides", depthFrameSettings.style == 1U,
+				"Four Sides", "四辺", "DepthFrameFourSides", frameAppearance.style == 1U,
 				"Draws a complete four-sided photographic frame.", "参考画像のような四辺の撮影用フレームを描画します。")) {
-			depthFrameSettings.style = 1U;
+			frameAppearance.style = 1U;
 			changed = true;
 		}
 		MenuFramework::SameLine();
-        if (ChoiceButton("Independent", "個別", "DepthFrameIndependent", depthFrameSettings.style == 2U,
+        if (ChoiceButton("Independent", "個別", "DepthFrameIndependent", frameAppearance.style == 2U,
                 "Set each edge independently.", "上下左右を個別に設定します。")) {
-            depthFrameSettings.style = 2U;
+            frameAppearance.style = 2U;
             changed = true;
         }
         changed |= CheckboxWithHelp(
-            "Subject Breakout", "被写体を枠の手前に出す", &depthFrameSettings.subjectBreakout,
+            "Subject Breakout", "被写体を枠の手前に出す", &frameAppearance.subjectBreakout,
 			"Uses the active tracked actor, or the player as a fallback, to cut the subject out of the frame with depth confirmation.",
 			"追跡中の人物を優先し、対象がなければプレイヤーを使います。深度でも確認して人物だけを枠の手前へ残します。");
-        if (depthFrameSettings.subjectBreakout) {
+        if (frameAppearance.subjectBreakout) {
             const auto edgeButton = [&](const char* english, const char* japanese, const char* id, std::uint32_t bit) {
                 MenuFramework::SameLine();
-                if (ChoiceButton(english, japanese, id, (depthFrameSettings.breakoutEdges & bit) != 0U,
+                if (ChoiceButton(english, japanese, id, (frameAppearance.breakoutEdges & bit) != 0U,
                         "Toggle subject breakout on this side of the rotated frame.",
                         "回転した枠のこの辺で、被写体を手前に出すか切り替えます。")) {
-                    depthFrameSettings.breakoutEdges ^= bit;
+                    frameAppearance.breakoutEdges ^= bit;
                     changed = true;
                 }
             };
@@ -1863,48 +1897,48 @@ namespace
             edgeButton("Right", "右", "BreakoutRight", 8U);
             edgeButton("Left", "左", "BreakoutLeft", 4U);
         }
-		if (depthFrameSettings.style == 2U) {
-            changed |= SliderWithHelp("Top Size", "上の幅", &depthFrameSettings.frameTop, 0.0F, 0.45F, "%.3f", "Zero hides this edge.", "0で非表示。");
-            changed |= SliderWithHelp("Bottom Size", "下の幅", &depthFrameSettings.frameBottom, 0.0F, 0.45F, "%.3f", "Zero hides this edge.", "0で非表示。");
-            changed |= SliderWithHelp("Left Size", "左の幅", &depthFrameSettings.frameLeft, 0.0F, 0.45F, "%.3f", "Zero hides this edge.", "0で非表示。");
-            changed |= SliderWithHelp("Right Size", "右の幅", &depthFrameSettings.frameRight, 0.0F, 0.45F, "%.3f", "Zero hides this edge.", "0で非表示。");
+		if (frameAppearance.style == 2U) {
+            changed |= SliderWithHelp("Top Size", "上の幅", &frameAppearance.frameTop, 0.0F, 0.45F, "%.3f", "Zero hides this edge.", "0で非表示。");
+            changed |= SliderWithHelp("Bottom Size", "下の幅", &frameAppearance.frameBottom, 0.0F, 0.45F, "%.3f", "Zero hides this edge.", "0で非表示。");
+            changed |= SliderWithHelp("Left Size", "左の幅", &frameAppearance.frameLeft, 0.0F, 0.45F, "%.3f", "Zero hides this edge.", "0で非表示。");
+            changed |= SliderWithHelp("Right Size", "右の幅", &frameAppearance.frameRight, 0.0F, 0.45F, "%.3f", "Zero hides this edge.", "0で非表示。");
         } else
             changed |= SliderWithHelp(
-                "Top / Bottom Size", "上下の幅", &depthFrameSettings.topBottomSize,
+                "Top / Bottom Size", "上下の幅", &frameAppearance.topBottomSize,
 			0.0F, 0.45F, "%.3f",
 			"Thickness of the top and bottom matte as a fraction of screen height.",
 			"画面高に対する上下フレームの幅です。");
-		if (depthFrameSettings.style == 1U) {
+		if (frameAppearance.style == 1U) {
 			changed |= SliderWithHelp(
-				"Left / Right Size", "左右の幅", &depthFrameSettings.sideSize,
+				"Left / Right Size", "左右の幅", &frameAppearance.sideSize,
 				0.0F, 0.45F, "%.3f",
 				"Thickness of the left and right frame as a fraction of screen width.",
 				"画面幅に対する左右フレームの幅です。");
 		}
-		if (depthFrameSettings.subjectBreakout) {
-			changed |= SliderWithHelp("Subject Inset", "被写体の輪郭を内側へ", &depthFrameSettings.subjectInsetPixels, 0.0F, 4.0F, "%.1f px", "Inset the subject mask. Zero keeps the original edge.", "マスクを内側に詰めます。0で従来の輪郭。");
+		if (frameAppearance.subjectBreakout) {
+			changed |= SliderWithHelp("Subject Inset", "被写体の輪郭を内側へ", &frameAppearance.subjectInsetPixels, 0.0F, 4.0F, "%.1f px", "Inset the subject mask. Zero keeps the original edge.", "マスクを内側に詰めます。0で従来の輪郭。");
 		}
 		changed |= SliderWithHelp(
-            "Frame Rotation", "枠の回転", &depthFrameSettings.frameRotationDegrees,
+            "Frame Rotation", "枠の回転", &frameAppearance.frameRotationDegrees,
             -180.0F, 180.0F, "%.1f deg", "Positive values rotate the frame clockwise.", "正の値で枠を時計回りに回転します。");
 		changed |= SliderWithHelp(
-			"Frame Opacity", "フレームの不透明度", &depthFrameSettings.opacity,
+			"Frame Opacity", "フレームの不透明度", &frameAppearance.opacity,
 			0.0F, 1.0F, "%.2f",
 			"Blends between the game image and the selected frame color.",
 			"ゲーム画面と選択したフレーム色を混ぜる強さです。");
 		changed |= ColorEditWithHelp(
-			"Frame Color", "フレーム色", depthFrameSettings.color,
+			"Frame Color", "フレーム色", frameAppearance.color,
 			"Black gives a cinematic letterbox; white or pale colors create a photographic print frame.",
 			"黒は映画風、白や淡色はプリント写真風のフレームになります。");
-		if (depthFrameSettings.subjectBreakout) {
+		if (frameAppearance.subjectBreakout) {
 			changed |= SliderWithHelp(
-				"Expand Subject Boundary", "被写体の境目を拡張", &depthFrameSettings.subjectExpansion,
+				"Expand Subject Boundary", "被写体の境目を拡張", &frameAppearance.subjectExpansion,
 				0.0F, kSubjectExpansionMax, "%.3f",
 				"Adds up to 6 px of extra room at the subject boundary where it overlaps the frame, helping keep fine hair and clothing edges visible.",
 				"枠と重なる被写体の境目に最大6 pxの余白を足し、毛先や衣装の端を残しやすくします。");
 		}
 		changed |= SliderWithHelp(
-			"Frame Edge Softness", "フレーム境界の柔らかさ", &depthFrameSettings.edgeSoftness,
+			"Frame Edge Softness", "フレーム境界の柔らかさ", &frameAppearance.edgeSoftness,
 			0.0F, 0.03F, "%.4f",
 			"Softens only the straight inner edge of the frame.",
 			"フレーム内側の直線境界だけを柔らかくします。");
@@ -1999,7 +2033,7 @@ namespace
             MenuFramework::SeparatorText(Localized("Frame Subject", "枠の手前に出す対象"));
             if (frameScanRequest == 0) RefreshFrameCandidates();
             if (CheckboxWithHelp("Focus Follows Frame Subject", "対象選択時にピントも追従させる",
-                &depthFrameSettings.linkSubjectFocus,
+                &(depthFrameSettings.photoMode ? photoFrameSettings : depthFrameSettings).linkSubjectFocus,
                 "Temporarily focuses on the selected subject while frame breakout is active. Returning to the player or disabling the frame resumes your previous focus mode.",
                 "深度フレームで選択した対象に一時的にピントを追従します。プレイヤーに戻すか深度フレームをオフにすると元のピント設定に戻ります。")) {
                 ApplyLive();
@@ -2023,7 +2057,7 @@ namespace
             MenuFramework::SeparatorText(Localized("Shared with Main Settings", "メイン設定と共通"));
             RenderHairBlendingControls();
             if (MenuFramework::Button(Localized("Save Startup Settings", "次回起動設定を保存"))) {
-                const bool frameSaved = SaveDepthFrameSettings(depthFrameSettings);
+                const bool frameSaved = SaveAllDepthFrameSettings();
                 const bool hairSaved = SaveExperimentalTransparencySettings(experimentalTransparencySettings);
                 if (frameSaved && hairSaved) {
                     SetStatus("Saved depth frame and hair blending settings.", "深度フレームと髪を馴染ませる設定を保存しました。");
@@ -2063,7 +2097,7 @@ namespace
 		RenderDialogueFocusControls();
 		MenuFramework::SeparatorText(Localized("Preset Management", "プリセット管理"));
 		RenderActions();
-		MenuFramework::Text("Cinematic DoF Standalone 1.0.11");
+		MenuFramework::Text("Cinematic DoF Standalone 1.0.13");
 		if (fontPushed) {
 			MenuFramework::PopFont();
 		}
@@ -2119,6 +2153,9 @@ void CDoF::UI::Initialize(Settings a_settings)
 	modeSettings = LoadModeSettings();
 	silhouetteSettings = LoadSilhouetteSettings();
 	depthFrameSettings = LoadDepthFrameSettings();
+	auto photoDefaults = depthFrameSettings;
+	photoDefaults.subjectBreakout = true;
+	photoFrameSettings = LoadDepthFrameSettings(L"DepthFrame.Photo", photoDefaults);
 	experimentalTransparencySettings = LoadExperimentalTransparencySettings();
 	interfaceSettings = LoadInterfaceSettings();
 	hotkeySettings = LoadHotkeySettings();
@@ -2127,7 +2164,7 @@ void CDoF::UI::Initialize(Settings a_settings)
 	editingPresetIndex = FindMatchingPreset();
 	DoFRenderer::GetSingleton().SetModeSettings(modeSettings);
 	DoFRenderer::GetSingleton().SetSilhouetteSettings(silhouetteSettings);
-	DoFRenderer::GetSingleton().SetDepthFrameSettings(depthFrameSettings);
+	DoFRenderer::GetSingleton().SetDepthFrameSettings(ActiveDepthFrameSettings());
 	ApplyExperimentalTransparency();
 	ApplyTargetFocus();
 	ApplyTDMFocus();

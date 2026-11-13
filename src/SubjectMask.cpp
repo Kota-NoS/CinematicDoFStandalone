@@ -143,8 +143,7 @@ void CDoF::SubjectMask::ResetLockOnState()
 
 void CDoF::SubjectMask::UpdateLockOnState()
 {
-    if (!lockOnOnly.load(std::memory_order_relaxed)) return;
-
+    // Frame visibility needs the current lock state even without subject breakout.
     targetLocked.store(TDMIntegration::IsTargetLocked(), std::memory_order_relaxed);
 }
 

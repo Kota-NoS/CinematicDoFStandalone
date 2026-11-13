@@ -1,6 +1,6 @@
-# CinematicDoFStandalone 1.0.11
+# CinematicDoFStandalone 1.0.13
 
-> **1.0.11** fixes DoF coverage and hair blending with sub-native upscaling. See Documentation/RELEASE_1.0.11_JA_EN.md.
+> **1.0.13** adds killmove/dialogue frame conditions, separate Photography Mode settings, and fixes target-lock visibility. See Documentation/RELEASE_1.0.13_JA_EN.md.
 
 ## 日本語
 

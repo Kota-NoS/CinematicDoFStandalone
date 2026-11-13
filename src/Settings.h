@@ -110,8 +110,11 @@ namespace CDoF
 		bool enabled{ false };
 		// 0 = horizontal letterbox, 1 = four-sided frame.
 		std::uint32_t style{ 0U };
-		bool subjectBreakout{ true };
+		bool subjectBreakout{ false };
 		bool lockOnOnly{ false };
+		bool killMoveOnly{ false };
+		bool dialogueOnly{ false };
+		bool photoMode{ false };
 		std::uint32_t breakoutEdges{ 15U }; // Top, bottom, left, right.
         bool linkSubjectFocus{ false };
 		float topBottomSize{ 0.13F };
@@ -164,8 +167,8 @@ namespace CDoF
 	bool SaveModeSettings(const ModeSettings& a_settings);
 	SilhouetteSettings LoadSilhouetteSettings();
 	bool SaveSilhouetteSettings(const SilhouetteSettings& a_settings);
-	DepthFrameSettings LoadDepthFrameSettings();
-	bool SaveDepthFrameSettings(const DepthFrameSettings& a_settings);
+	DepthFrameSettings LoadDepthFrameSettings(const wchar_t* a_section = L"DepthFrame", DepthFrameSettings a_defaults = {});
+	bool SaveDepthFrameSettings(const DepthFrameSettings& a_settings, const wchar_t* a_section = L"DepthFrame");
 	ExperimentalTransparencySettings LoadExperimentalTransparencySettings();
 	bool SaveExperimentalTransparencySettings(const ExperimentalTransparencySettings& a_settings);
 	TargetFocusSettings LoadPresetTargetFocusSettings(
